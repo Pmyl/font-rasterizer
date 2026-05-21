@@ -8,10 +8,10 @@ pub struct GlyfData {
     // If the number of contours is positive or zero, it is a single glyph;
     // If the number of contours less than zero, the glyph is compound
     pub number_of_contours: i16,
-    pub x_min: u16,
-    pub y_min: u16,
-    pub x_max: u16,
-    pub y_max: u16,
+    pub x_min: i16,
+    pub y_min: i16,
+    pub x_max: i16,
+    pub y_max: i16,
     pub definition: GlyfDefinition,
 }
 

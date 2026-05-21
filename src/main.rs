@@ -1,3 +1,7 @@
+// TODO: Adjustment of "+1 current byte if odd" is a workaround, should read the loca table for the correct offsets
+// TODO: use the parser-debug to help in understanding why the fifth glyf fails (that is actually the seventh but we skip the empty ones because we don't read the loca table)
+//      The current byte for the glyf seems correct but the flag is invalid, use the debug parser in js to understand why it doesn't fail there
+
 // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6cmap.html
 // xxd -g1 -s 0x7bc -l 268 ./Verdana.ttf | less
 
@@ -24,12 +28,11 @@
  */
 
 use std::{
-    array, env,
+    env,
     error::Error,
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom, stdout},
+    io::{Read, Seek, SeekFrom},
     os::unix::fs::FileExt,
-    process::exit,
 };
 
 use font_rasterizer::{
@@ -47,7 +50,8 @@ fn main() -> Result<()> {
     let filename = env::args()
         .skip(1)
         .next()
-        .expect("Provide one parameter: font filename");
+        .unwrap_or("Arial.ttf".to_string());
+    // .expect("Provide one parameter: font filename");
     dbg!(&filename);
 
     let mut file = OpenOptions::new().read(true).open(filename)?;
@@ -77,8 +81,8 @@ fn main() -> Result<()> {
     dbg!(&offset_subtable);
     dbg!(&table_directory);
 
-    let mut cmap: Option<Cmap> = None;
-    let mut glyf: Option<Glyf> = None;
+    let mut cmap: Option<Cmap>;
+    let mut glyf: Option<Glyf>;
 
     for entry in &table_directory {
         match &entry.tag {
@@ -97,27 +101,45 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+// https://learn.microsoft.com/en-us/typography/opentype/spec/glyf
+// https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6glyf.html
 fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
     file.seek(SeekFrom::Start(offset as u64))
         .map_err(|e| format!("Seeking for glyf {}", e))?;
 
     let mut glyphs = vec![];
     let mut current_length_in_bytes = 0u32;
+    let mut counter = 0;
 
     loop {
+        dbg!(current_length_in_bytes);
+        println!("Current byte: {}", current_length_in_bytes + offset);
+        counter += 1;
         let number_of_contours =
             read_i16(file).map_err(|e| format!("Reading number_of_contours {}", e))?;
-        let x_min = read_u16(file).map_err(|e| format!("Reading x_min {}", e))?;
-        let y_min = read_u16(file).map_err(|e| format!("Reading y_min {}", e))?;
-        let x_max = read_u16(file).map_err(|e| format!("Reading x_max {}", e))?;
-        let y_max = read_u16(file).map_err(|e| format!("Reading y_max {}", e))?;
-        current_length_in_bytes += 10;
+        current_length_in_bytes += 2;
+        let x_min = read_i16(file).map_err(|e| format!("Reading x_min {}", e))?;
+        let y_min = read_i16(file).map_err(|e| format!("Reading y_min {}", e))?;
+        let x_max = read_i16(file).map_err(|e| format!("Reading x_max {}", e))?;
+        let y_max = read_i16(file).map_err(|e| format!("Reading y_max {}", e))?;
+        current_length_in_bytes += 8;
 
+        dbg!(counter);
         dbg!(number_of_contours);
 
-        let definition: GlyfDefinition = if number_of_contours < 1 {
-            stop_here();
+        let definition: GlyfDefinition = if number_of_contours < 0 {
             GlyfDefinition::Compound
+        } else if number_of_contours == 0 {
+            let simple = SimpleGlyfDefinition {
+                end_pts_of_contours: vec![],
+                instruction_length: 0,
+                instructions: vec![],
+                flags: vec![],
+                x_coordinates: vec![],
+                y_coordinates: vec![],
+            };
+
+            GlyfDefinition::Simple(simple)
         } else {
             let mut end_pts_of_contours: Vec<u16> = Vec::with_capacity(number_of_contours as usize);
             for _ in 0..number_of_contours {
@@ -137,7 +159,7 @@ fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
                 current_length_in_bytes += 1;
             }
 
-            let number_of_points = *end_pts_of_contours.last().expect("At least one contour");
+            let number_of_points = *end_pts_of_contours.last().expect("At least one contour") + 1;
 
             let mut flags: Vec<GlyfFlag> = Vec::with_capacity(number_of_points as usize);
             loop {
@@ -189,58 +211,67 @@ fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
             let mut y_coordinates = Vec::with_capacity(number_of_points as usize);
             for flag in &flags {
                 match (flag.x_short_vector, flag.this_x_is_same) {
-                    (true, _) => {
+                    (true, false) => {
+                        x_coordinates.push(
+                            *x_coordinates.last().unwrap_or(&0)
+                                - read_u8(file)
+                                    .map_err(|e| format!("Reading x coordinate u8 {}", e))?
+                                    as i16,
+                        );
+                        current_length_in_bytes += 1;
+                    }
+                    (true, true) => {
                         x_coordinates.push(
                             read_u8(file).map_err(|e| format!("Reading x coordinate u8 {}", e))?
-                                as i16,
+                                as i16
+                                + *x_coordinates.last().unwrap_or(&0),
                         );
                         current_length_in_bytes += 1;
                     }
                     (false, false) => {
                         x_coordinates.push(
                             read_i16(file)
-                                .map_err(|e| format!("Reading x coordinate i16 {}", e))?,
+                                .map_err(|e| format!("Reading x coordinate i16 {}", e))?
+                                + *x_coordinates.last().unwrap_or(&0),
                         );
                         current_length_in_bytes += 2;
                     }
                     (false, true) => {
-                        x_coordinates.push(*x_coordinates.last().expect(
-                            "Should never try to get the previous x coordinate if it's the first",
-                        ));
+                        // Sometimes this can be on the first? Default to 0 seems to be fine
+                        x_coordinates.push(*x_coordinates.last().unwrap_or(&0));
                     }
                 }
             }
             for flag in &flags {
                 match (flag.y_short_vector, flag.this_y_is_same) {
-                    (true, _) => {
+                    (true, false) => {
+                        y_coordinates.push(
+                            *y_coordinates.last().unwrap_or(&0)
+                                - read_u8(file)
+                                    .map_err(|e| format!("Reading y coordinate u8 {}", e))?
+                                    as i16,
+                        );
+                        current_length_in_bytes += 1;
+                    }
+                    (true, true) => {
                         y_coordinates.push(
                             read_u8(file).map_err(|e| format!("Reading y coordinate u8 {}", e))?
-                                as i16,
+                                as i16
+                                + *y_coordinates.last().unwrap_or(&0),
                         );
                         current_length_in_bytes += 1;
                     }
                     (false, false) => {
                         y_coordinates.push(
                             read_i16(file)
-                                .map_err(|e| format!("Reading y coordinate i16 {}", e))?,
+                                .map_err(|e| format!("Reading y coordinate i16 {}", e))?
+                                + *y_coordinates.last().unwrap_or(&0),
                         );
                         current_length_in_bytes += 2;
                     }
                     (false, true) => {
-                        /*
-                         * This fails, for some reason it seems we're reading the wrong bytes?
-                         * To check: are we using the offset right for glyf? It seems to be ok for cmap but worth checking again
-                         * https://learn.microsoft.com/en-us/typography/opentype/spec/glyf
-                         * https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6glyf.html
-                         *
-                         * Even without this failure, the first x coordinate is like 8000 even though the x max is around 1700,
-                         * this tells us that we are probably reading the wrong bytes
-                         *
-                         * Worst case scenario, after we exhausted all things we want to try, we can try to see if there is a ttf parser online
-                         */
-                        y_coordinates.push(*y_coordinates.last().expect(
-                            "Should never try to get the previous y coordinate if it's the first",
-                        ));
+                        // Sometimes this can be on the first? Default to 0 seems to be fine
+                        y_coordinates.push(*y_coordinates.last().unwrap_or(&0));
                     }
                 }
             }
@@ -265,8 +296,14 @@ fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
             y_max,
             definition,
         };
-        dbg!(&glyph);
+        // dbg!(&glyph);
         glyphs.push(glyph);
+
+        // TODO: workaround, should read the loca table to know where the next glyf starts
+        if current_length_in_bytes % 2 == 1 {
+            current_length_in_bytes += 1;
+            read_u8(file)?;
+        }
 
         if current_length_in_bytes >= length {
             break;
@@ -276,11 +313,7 @@ fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
     Ok(Glyf { glyphs })
 }
 
-fn stop_here() {
-    panic!("unhandled compound");
-}
-
-fn read_cmap(file: &mut File, offset: u32, length: u32) -> Result<Cmap> {
+fn read_cmap(file: &mut File, offset: u32, _: u32) -> Result<Cmap> {
     file.seek(SeekFrom::Start(offset as u64))
         .map_err(|e| format!("Seeking for cmap {}", e))?;
 
@@ -335,7 +368,7 @@ fn read_cmap(file: &mut File, offset: u32, length: u32) -> Result<Cmap> {
 fn read_u8(file: &mut File) -> Result<u8> {
     let mut bytes = [0u8; 1];
     file.read_exact(&mut bytes)?;
-    Ok(bytes[0])
+    Ok(u8::from_be_bytes(bytes))
 }
 
 fn read_u16(file: &mut File) -> Result<u16> {
