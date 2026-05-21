@@ -1,6 +1,7 @@
 // TODO: Adjustment of "+1 current byte if odd" is a workaround, should read the loca table for the correct offsets
 // TODO: use the parser-debug to help in understanding why the fifth glyf fails (that is actually the seventh but we skip the empty ones because we don't read the loca table)
 //      The current byte for the glyf seems correct but the flag is invalid, use the debug parser in js to understand why it doesn't fail there
+// https://fontdrop.info/#/?darkmode=true
 
 // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6cmap.html
 // xxd -g1 -s 0x7bc -l 268 ./Verdana.ttf | less
