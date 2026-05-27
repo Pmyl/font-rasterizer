@@ -37,9 +37,12 @@ use std::{
 };
 
 use font_rasterizer::{
-    OffsetSubtable, TableDirectoryEntry,
-    cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0},
+    OffsetSubtable, TableDirectory, TableDirectoryEntry,
+    cmap::{self, Cmap, CmapEncodingSubtable, CmapSubtable, Format0},
     glyf::{Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition},
+    head::Head,
+    loca::Loca,
+    maxp::{self, Maxp},
 };
 
 type Result<T> = core::result::Result<T, Box<dyn Error>>;
@@ -66,7 +69,7 @@ fn main() -> Result<()> {
         range_shift: read_u16(&mut file).map_err(|e| format!("Reading range_shift {}", e))?,
     };
 
-    let mut table_directory = Vec::with_capacity(offset_subtable.number_of_tables as usize);
+    let mut table_directory = TableDirectory::new(offset_subtable.number_of_tables as usize);
     for _ in 0..offset_subtable.number_of_tables {
         let entry = TableDirectoryEntry {
             tag: read_bytes::<4>(&mut file).map_err(|e| format!("Reading tag {}", e))?,
@@ -74,48 +77,78 @@ fn main() -> Result<()> {
             offset: read_u32(&mut file).map_err(|e| format!("Reading offset {}", e))?,
             length: read_u32(&mut file).map_err(|e| format!("Reading length {}", e))?,
         };
-        if &entry.tag == b"cmap" || &entry.tag == b"glyf" {
-            table_directory.push(entry);
-        }
+
+        table_directory.add_entry(entry);
     }
 
     dbg!(&offset_subtable);
     dbg!(&table_directory);
 
-    let mut cmap: Option<Cmap>;
-    let mut glyf: Option<Glyf>;
-
-    for entry in &table_directory {
-        match &entry.tag {
-            b"cmap" => {
-                cmap = Some(read_cmap(&mut file, entry.offset, entry.length)?);
-                dbg!(cmap);
-            }
-            b"glyf" => {
-                glyf = Some(read_glyf(&mut file, entry.offset, entry.length)?);
-                dbg!(glyf);
-            }
-            _ => unreachable!("Unhandled tag {:?}", entry.tag),
-        }
-    }
+    let cmap_entry = table_directory.get(b"cmap")?;
+    let cmap = read_cmap(&mut file, cmap_entry.offset, cmap_entry.length)?;
+    dbg!(cmap);
+    let maxp_entry = table_directory.get(b"maxp")?;
+    let maxp = read_maxp(&mut file, maxp_entry.offset, maxp_entry.length)?;
+    dbg!(&maxp);
+    let head_entry = table_directory.get(b"head")?;
+    let head = read_head(&mut file, head_entry)?;
+    dbg!(&head);
+    let loca_entry = table_directory.get(b"loca")?;
+    let loca = read_loca(&mut file, loca_entry, &head, &maxp)?;
+    dbg!(&loca);
+    let glyf_entry = table_directory.get(b"glyf")?;
+    let glyf = read_glyf(&mut file, glyf_entry, &loca)?;
+    dbg!(glyf);
 
     Ok(())
 }
 
 // https://learn.microsoft.com/en-us/typography/opentype/spec/glyf
 // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6glyf.html
-fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
-    file.seek(SeekFrom::Start(offset as u64))
+fn read_glyf(file: &mut File, entry: &TableDirectoryEntry, loca: &Loca) -> Result<Glyf> {
+    file.seek(SeekFrom::Start(entry.offset as u64))
         .map_err(|e| format!("Seeking for glyf {}", e))?;
 
     let mut glyphs = vec![];
-    let mut current_length_in_bytes = 0u32;
+    let mut current_length_in_bytes;
     let mut counter = 0;
 
-    loop {
-        dbg!(current_length_in_bytes);
-        println!("Current byte: {}", current_length_in_bytes + offset);
+    for [start, end] in loca.offsets.array_windows::<2>() {
+        let target_offset = entry.offset + start;
         counter += 1;
+        dbg!(counter);
+
+        if start == end {
+            let definition: GlyfDefinition = GlyfDefinition::Simple(SimpleGlyfDefinition {
+                end_pts_of_contours: vec![],
+                instruction_length: 0,
+                instructions: vec![],
+                flags: vec![],
+                x_coordinates: vec![],
+                y_coordinates: vec![],
+            });
+            let glyph = GlyfData {
+                number_of_contours: 0,
+                x_min: 0,
+                y_min: 0,
+                x_max: 0,
+                y_max: 0,
+                definition,
+            };
+
+            glyphs.push(glyph);
+            continue;
+        }
+
+        let current_byte = file
+            .seek(SeekFrom::Start(target_offset as u64))
+            .map_err(|e| format!("Seeking for glyf {}", e))?;
+
+        current_length_in_bytes = current_byte as u32 - entry.offset;
+
+        dbg!(current_length_in_bytes);
+        println!("Current byte: {}", current_byte);
+
         let number_of_contours =
             read_i16(file).map_err(|e| format!("Reading number_of_contours {}", e))?;
         current_length_in_bytes += 2;
@@ -125,7 +158,6 @@ fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
         let y_max = read_i16(file).map_err(|e| format!("Reading y_max {}", e))?;
         current_length_in_bytes += 8;
 
-        dbg!(counter);
         dbg!(number_of_contours);
 
         let definition: GlyfDefinition = if number_of_contours < 0 {
@@ -187,7 +219,14 @@ fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
                 let flag = read_u8(file).map_err(|e| format!("Reading flag {}", e))?;
                 current_length_in_bytes += 1;
 
-                assert!(flag & 0b11000000 == 0b00000000);
+                assert!(
+                    flag & 0b11000000 == 0b00000000,
+                    "flags {:#?} flag {} current length in bytes {}, {}",
+                    flags,
+                    flag,
+                    current_length_in_bytes,
+                    instruction_length
+                );
 
                 let repeat = flag & 0b00001000 == 0b00001000;
                 let number_of_times = if repeat {
@@ -300,18 +339,75 @@ fn read_glyf(file: &mut File, offset: u32, length: u32) -> Result<Glyf> {
         // dbg!(&glyph);
         glyphs.push(glyph);
 
-        // TODO: workaround, should read the loca table to know where the next glyf starts
-        if current_length_in_bytes % 2 == 1 {
-            current_length_in_bytes += 1;
-            read_u8(file)?;
-        }
-
-        if current_length_in_bytes >= length {
+        if current_length_in_bytes >= entry.length {
             break;
         }
     }
 
     Ok(Glyf { glyphs })
+}
+
+fn read_maxp(file: &mut File, offset: u32, _: u32) -> Result<Maxp> {
+    file.seek(SeekFrom::Start(offset as u64))
+        .map_err(|e| format!("Seeking for cmap {}", e))?;
+
+    let version = read_u32(file).map_err(|e| format!("Reading maxp version {}", e))?;
+    let number_of_glyphs = read_u16(file).map_err(|e| format!("Reading number of glyphs {}", e))?;
+
+    Ok(Maxp {
+        version,
+        number_of_glyphs,
+    })
+}
+
+fn read_loca(
+    file: &mut File,
+    entry: &TableDirectoryEntry,
+    head: &Head,
+    maxp: &Maxp,
+) -> Result<Loca> {
+    file.seek(SeekFrom::Start(entry.offset as u64))
+        .map_err(|e| format!("Seeking for loca {}", e))?;
+
+    let mut offsets = Vec::with_capacity(maxp.number_of_glyphs as usize);
+    for _ in 0..maxp.number_of_glyphs {
+        if head.index_to_loc_format == 0 {
+            offsets.push(read_u16(file)? as u32 * 2);
+        } else {
+            offsets.push(read_u32(file)?);
+        }
+    }
+
+    Ok(Loca { offsets })
+}
+
+fn read_head(file: &mut File, entry: &TableDirectoryEntry) -> Result<Head> {
+    file.seek(SeekFrom::Start(entry.offset as u64))
+        .map_err(|e| format!("Seeking for head {}", e))?;
+
+    Ok(Head {
+        version: read_u32(file).map_err(|e| format!("Reading version {}", e))?,
+        font_revision: read_i32(file).map_err(|e| format!("Reading font_revision {}", e))?,
+        checksum_adjustment: read_u32(file)
+            .map_err(|e| format!("Reading checksum_adjustment {}", e))?,
+        magic_number: read_u32(file).map_err(|e| format!("Reading magic_number {}", e))?,
+        flags: read_u16(file).map_err(|e| format!("Reading flags {}", e))?,
+        units_per_em: read_u16(file).map_err(|e| format!("Reading units_per_em {}", e))?,
+        created: read_u64(file).map_err(|e| format!("Reading created {}", e))?,
+        modified: read_u64(file).map_err(|e| format!("Reading modified {}", e))?,
+        xmin: read_i16(file).map_err(|e| format!("Reading xmin {}", e))?,
+        ymin: read_i16(file).map_err(|e| format!("Reading ymin {}", e))?,
+        xmax: read_i16(file).map_err(|e| format!("Reading xmax {}", e))?,
+        ymax: read_i16(file).map_err(|e| format!("Reading ymax {}", e))?,
+        mac_style: read_u16(file).map_err(|e| format!("Reading mac_style {}", e))?,
+        lowest_rec_ppem: read_u16(file).map_err(|e| format!("Reading lowest_rec_ppem {}", e))?,
+        font_direction_hint: read_i16(file)
+            .map_err(|e| format!("Reading font_direction_hint {}", e))?,
+        index_to_loc_format: read_i16(file)
+            .map_err(|e| format!("Reading index_to_loc_format {}", e))?,
+        glyph_data_format: read_i16(file)
+            .map_err(|e| format!("Reading glyph_data_format {}", e))?,
+    })
 }
 
 fn read_cmap(file: &mut File, offset: u32, _: u32) -> Result<Cmap> {
@@ -388,6 +484,18 @@ fn read_u32(file: &mut File) -> Result<u32> {
     let mut bytes = [0u8; 4];
     file.read_exact(&mut bytes)?;
     Ok(u32::from_be_bytes(bytes))
+}
+
+fn read_i32(file: &mut File) -> Result<i32> {
+    let mut bytes = [0u8; 4];
+    file.read_exact(&mut bytes)?;
+    Ok(i32::from_be_bytes(bytes))
+}
+
+fn read_u64(file: &mut File) -> Result<u64> {
+    let mut bytes = [0u8; 8];
+    file.read_exact(&mut bytes)?;
+    Ok(u64::from_be_bytes(bytes))
 }
 
 fn read_bytes<const N: usize>(file: &mut File) -> Result<[u8; N]> {

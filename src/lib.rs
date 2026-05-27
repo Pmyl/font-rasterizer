@@ -1,7 +1,10 @@
-use crate::{cmap::Cmap, glyf::Glyf};
+use crate::{cmap::Cmap, glyf::Glyf, maxp::Maxp};
 
 pub mod cmap;
 pub mod glyf;
+pub mod head;
+pub mod loca;
+pub mod maxp;
 
 #[derive(Debug)]
 pub struct TrueTypeFont {
@@ -9,6 +12,7 @@ pub struct TrueTypeFont {
     pub table_directory: Vec<TableDirectoryEntry>,
     pub cmap: Cmap,
     pub glyf: Glyf,
+    pub maxp: Maxp,
 }
 
 #[derive(Debug)]
@@ -20,6 +24,30 @@ pub struct OffsetSubtable {
     pub search_range: u16,   // (maximum power of 2 <= numTables)*16
     pub entry_selector: u16, // log2(maximum power of 2 <= numTables)
     pub range_shift: u16,    // numTables*16-searchRange
+}
+
+#[derive(Debug)]
+pub struct TableDirectory {
+    pub entries: Vec<TableDirectoryEntry>,
+}
+
+impl TableDirectory {
+    pub fn new(capacity: usize) -> TableDirectory {
+        TableDirectory {
+            entries: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn add_entry(&mut self, entry: TableDirectoryEntry) {
+        self.entries.push(entry);
+    }
+
+    pub fn get(&self, tag: &[u8; 4]) -> Result<&TableDirectoryEntry, String> {
+        self.entries
+            .iter()
+            .find(|t| &t.tag == tag)
+            .ok_or_else(|| format!("Cannot find {}", String::from_utf8_lossy(tag)))
+    }
 }
 
 #[derive(Debug)]

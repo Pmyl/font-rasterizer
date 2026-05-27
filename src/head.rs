@@ -1,0 +1,20 @@
+#[derive(Debug)]
+pub struct Head {
+    pub version: u32,
+    pub font_revision: i32,
+    pub checksum_adjustment: u32,
+    pub magic_number: u32,
+    pub flags: u16,
+    pub units_per_em: u16,
+    pub created: u64,
+    pub modified: u64,
+    pub xmin: i16,
+    pub ymin: i16,
+    pub xmax: i16,
+    pub ymax: i16,
+    pub mac_style: u16,
+    pub lowest_rec_ppem: u16,
+    pub font_direction_hint: i16,
+    pub index_to_loc_format: i16,
+    pub glyph_data_format: i16,
+}
