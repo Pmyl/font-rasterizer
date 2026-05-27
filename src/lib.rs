@@ -1,4 +1,4 @@
-use crate::{cmap::Cmap, glyf::Glyf, maxp::Maxp};
+use crate::{cmap::Cmap, glyf::Glyf};
 
 pub mod cmap;
 pub mod glyf;
@@ -9,10 +9,9 @@ pub mod maxp;
 #[derive(Debug)]
 pub struct TrueTypeFont {
     pub offset_subtable: OffsetSubtable,
-    pub table_directory: Vec<TableDirectoryEntry>,
+    pub table_directory: TableDirectory,
     pub cmap: Cmap,
     pub glyf: Glyf,
-    pub maxp: Maxp,
 }
 
 #[derive(Debug)]

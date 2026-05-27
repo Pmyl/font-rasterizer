@@ -42,4 +42,5 @@ pub struct GlyfFlag {
     pub y_short_vector: bool,
     pub this_x_is_same: bool,
     pub this_y_is_same: bool,
+    pub original_flag: u8,
 }
