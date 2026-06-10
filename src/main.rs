@@ -10,6 +10,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
+use bitmap::Point;
 use font_rasterizer::{
     OffsetSubtable, TableDirectory, TableDirectoryEntry, TrueTypeFont,
     cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0},
@@ -77,15 +78,75 @@ fn main() -> Result<()> {
 
     match &font.cmap.subtables[0] {
         CmapSubtable::Format0(format0) => {
-            let cmap_index = 175;
+            let cmap_index = 65;
             let index = format0.glyph_index_array[cmap_index];
             let glyph = &font.glyf.glyphs[index as usize];
-            println!("Index {} -> {} -> {:#?}", cmap_index, index, glyph);
+            println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
+
+            rasterize_glyph_to_bitmap(glyph);
         }
         CmapSubtable::Unhandled { .. } => {}
     }
 
     Ok(())
+}
+
+fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
+    let padding = 16;
+    let variations_of_big: Vec<(usize, usize)> = vec![
+        (0, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (0, 1),
+        (1, 1),
+        (2, 1),
+        (3, 1),
+        (0, 2),
+        (1, 2),
+        (2, 2),
+        (3, 2),
+        (0, 3),
+        (1, 3),
+        (2, 3),
+        (3, 3),
+    ];
+
+    let height = (glyph.y_max - glyph.y_min) as usize + padding;
+    let width = (glyph.x_max - glyph.x_min) as usize + padding;
+    let mut bitmap_maker = bitmap::BitmapMaker::new(width, height);
+
+    match &glyph.definition {
+        GlyfDefinition::Simple(simple_glyf_definition) => {
+            for (x, y) in simple_glyf_definition
+                .x_coordinates
+                .iter()
+                .zip(&simple_glyf_definition.y_coordinates)
+            {
+                for variations in &variations_of_big {
+                    bitmap_maker = bitmap_maker.with(
+                        Point {
+                            x: (x - glyph.x_min) as usize + padding / 2 + variations.0,
+                            y: height - ((y - glyph.y_min) as usize + padding / 2 + variations.1),
+                        },
+                        0x000000,
+                    );
+                }
+            }
+        }
+        GlyfDefinition::Compound => {}
+    }
+
+    let bitmap = bitmap_maker.make().unwrap();
+
+    let mut image_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("image.bmp")
+        .expect("Should be able to open a file");
+
+    bitmap.write(&mut image_file).unwrap();
 }
 
 fn read_glyf(file: &mut File, entry: &TableDirectoryEntry, loca: &Loca) -> Result<Glyf> {
