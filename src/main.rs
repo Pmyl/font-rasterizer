@@ -24,11 +24,20 @@ use font_rasterizer::{
 type Result<T> = core::result::Result<T, Box<dyn Error>>;
 
 fn main() -> Result<()> {
-    let filename = env::args()
-        .skip(1)
+    let mut args = env::args();
+    args.next(); // skip binary name
+
+    let filename = args
         .next()
-        .unwrap_or("Arial.ttf".to_string());
-    // .expect("Provide one parameter: font filename");
+        .expect("Provide the first parameter: font filename");
+
+    let character_to_show = args
+        .next()
+        .unwrap_or("g".to_string())
+        .chars()
+        .next()
+        .unwrap();
+
     dbg!(&filename);
 
     let mut file = OpenOptions::new().read(true).open(filename)?;
@@ -79,7 +88,7 @@ fn main() -> Result<()> {
 
     match &font.cmap.subtables[0] {
         CmapSubtable::Format0(format0) => {
-            let cmap_index = from_byte_to_cmap_index(b'g');
+            let cmap_index = from_byte_to_cmap_index(character_to_show);
             let index = format0.glyph_index_array[cmap_index];
             let glyph = &font.glyf.glyphs[index as usize];
             println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
