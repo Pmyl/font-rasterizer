@@ -17,6 +17,7 @@ use font_rasterizer::{
     glyf::{Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition},
     head::Head,
     loca::Loca,
+    mac_os_roman::from_byte_to_cmap_index,
     maxp::Maxp,
 };
 
@@ -78,7 +79,7 @@ fn main() -> Result<()> {
 
     match &font.cmap.subtables[0] {
         CmapSubtable::Format0(format0) => {
-            let cmap_index = 65;
+            let cmap_index = from_byte_to_cmap_index(b'g');
             let index = format0.glyph_index_array[cmap_index];
             let glyph = &font.glyf.glyphs[index as usize];
             println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
