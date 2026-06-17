@@ -14,6 +14,6 @@
     "program": "$ZED_WORKTREE_ROOT/target/debug/font-rasterizer",
     "sourceLanguages": ["rust"],
     "request": "launch",
-    "args": ["Verdana.ttf", "o"],
+    "args": ["Verdana.ttf", "s"],
   },
 ]

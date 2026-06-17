@@ -1,7 +1,7 @@
 use bitmap::Point;
-use std::ops::{Add, Mul};
+use std::ops::{Add, Mul, Sub};
 
-use crate::glyf::{GlyfData, GlyfDefinition};
+use crate::glyf::{GlyfData, GlyfDefinition, GlyfFlag};
 
 pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
     let padding = 16;
@@ -70,73 +70,159 @@ fn draw_lines(
     mut bitmap_maker: bitmap::BitmapMaker,
     simple_glyf_definition: &crate::glyf::SimpleGlyfDefinition,
 ) -> bitmap::BitmapMaker {
-    for trio in simple_glyf_definition
-        .x_coordinates
-        .iter()
-        .zip(&simple_glyf_definition.y_coordinates)
-        .zip(&simple_glyf_definition.flags)
-        .collect::<Vec<_>>()
-        .chunks(3)
-    {
-        if trio.len() != 3 {
+    let xs = &simple_glyf_definition.x_coordinates;
+    let ys = &simple_glyf_definition.y_coordinates;
+    let flags = &simple_glyf_definition.flags;
+
+    let mut i = 0;
+
+    let get_p = |index: usize| -> Option<(i16, i16, &GlyfFlag)> {
+        Some((*xs.get(index)?, *ys.get(index)?, flags.get(index)?))
+    };
+
+    loop {
+        let Some(p0) = get_p(i) else {
+            break;
+        };
+        i += 1;
+        let Some(p1) = get_p(i) else {
+            break;
+        };
+
+        if p1.2.on_curve {
+            bitmap_maker = draw_straight_line(
+                glyph,
+                padding,
+                variations_of_big,
+                height,
+                bitmap_maker,
+                (p0.0, p0.1),
+                (p1.0, p1.1),
+            );
             continue;
-        }
+        } else {
+            i += 1;
+            let Some(p2) = get_p(i) else {
+                break;
+            };
 
-        if !trio[0].1.on_curve || trio[1].1.on_curve || !trio[2].1.on_curve {
-            continue;
-        }
-
-        println!("FOUND A CURVE TO DRAW");
-
-        let p0 = trio[0];
-        let p1 = trio[1];
-        let p2 = trio[2];
-
-        let p0_to_p1_distance = distance(
-            Point::new(*p0.0.0 as usize, *p0.0.1 as usize),
-            Point::new(*p1.0.0 as usize, *p1.0.1 as usize),
-        );
-        let p1_to_p2_distance = distance(
-            Point::new(*p1.0.0 as usize, *p1.0.1 as usize),
-            Point::new(*p2.0.0 as usize, *p2.0.1 as usize),
-        );
-        let total_distance = p0_to_p1_distance + p1_to_p2_distance;
-
-        let mut t: f32 = 0.0;
-        let step: f32 = 1.0 / total_distance as f32;
-
-        let p0 = PointF {
-            x: *p0.0.0 as f32,
-            y: *p0.0.1 as f32,
-        };
-
-        let p1 = PointF {
-            x: *p1.0.0 as f32,
-            y: *p1.0.1 as f32,
-        };
-
-        let p2 = PointF {
-            x: *p2.0.0 as f32,
-            y: *p2.0.1 as f32,
-        };
-
-        for _ in 0..total_distance {
-            t += step;
-            let point_on_curve = curve_point(p0, p1, p2, t);
-            for variations in variations_of_big {
-                bitmap_maker = bitmap_maker.with(
-                    Point {
-                        x: (point_on_curve.x as i16 - glyph.x_min) as usize
-                            + padding / 2
-                            + variations.0,
-                        y: height
-                            - ((point_on_curve.y as i16 - glyph.y_min) as usize
-                                + padding / 2
-                                + variations.1),
-                    },
-                    0x0000FF,
+            if !p2.2.on_curve {
+                i += 1;
+                println!("SHOULD HAVE DRAWN A CURVE COMING UP WITH A MIDDLE POINT");
+                // come up with the new middle point and draw curve
+            } else {
+                bitmap_maker = draw_curve(
+                    glyph,
+                    padding,
+                    variations_of_big,
+                    height,
+                    bitmap_maker,
+                    (p0.0, p0.1),
+                    (p1.0, p1.1),
+                    (p2.0, p2.1),
                 );
             }
+        }
+    }
+
+    bitmap_maker
+}
+
+fn draw_straight_line(
+    glyph: &GlyfData,
+    padding: usize,
+    variations_of_big: &Vec<(usize, usize)>,
+    height: usize,
+    mut bitmap_maker: bitmap::BitmapMaker,
+    p0: (i16, i16),
+    p1: (i16, i16),
+) -> bitmap::BitmapMaker {
+    let total_distance = distance((p0.0, p0.1), (p1.0, p1.1));
+
+    let mut t: f32 = 0.0;
+    let step: f32 = 1.0 / total_distance as f32;
+
+    let p0 = PointF {
+        x: p0.0 as f32,
+        y: p0.1 as f32,
+    };
+
+    let p1 = PointF {
+        x: p1.0 as f32,
+        y: p1.1 as f32,
+    };
+
+    let direction = p0 - p1;
+
+    for _ in 0..total_distance {
+        t += step;
+        let point_on_line = line_point(p0, direction, t);
+
+        for variations in variations_of_big {
+            bitmap_maker = bitmap_maker.with(
+                Point {
+                    x: (point_on_line.x as i16 - glyph.x_min) as usize + padding / 2 + variations.0,
+                    y: height
+                        - ((point_on_line.y as i16 - glyph.y_min) as usize
+                            + padding / 2
+                            + variations.1),
+                },
+                0x0000FF,
+            );
+        }
+    }
+
+    bitmap_maker
+}
+
+fn draw_curve(
+    glyph: &GlyfData,
+    padding: usize,
+    variations_of_big: &Vec<(usize, usize)>,
+    height: usize,
+    mut bitmap_maker: bitmap::BitmapMaker,
+    p0: (i16, i16),
+    p1: (i16, i16),
+    p2: (i16, i16),
+) -> bitmap::BitmapMaker {
+    let p0_to_p1_distance = distance((p0.0, p0.1), (p1.0, p1.1));
+    let p1_to_p2_distance = distance((p1.0, p1.1), (p2.0, p2.1));
+    let total_distance = p0_to_p1_distance + p1_to_p2_distance;
+
+    let mut t: f32 = 0.0;
+    let step: f32 = 1.0 / total_distance as f32;
+
+    let p0 = PointF {
+        x: p0.0 as f32,
+        y: p0.1 as f32,
+    };
+
+    let p1 = PointF {
+        x: p1.0 as f32,
+        y: p1.1 as f32,
+    };
+
+    let p2 = PointF {
+        x: p2.0 as f32,
+        y: p2.1 as f32,
+    };
+
+    for _ in 0..total_distance {
+        t += step;
+        let point_on_curve = curve_point(p0, p1, p2, t);
+        for variations in variations_of_big {
+            bitmap_maker = bitmap_maker.with(
+                Point {
+                    x: (point_on_curve.x as i16 - glyph.x_min) as usize
+                        + padding / 2
+                        + variations.0,
+                    y: height
+                        - ((point_on_curve.y as i16 - glyph.y_min) as usize
+                            + padding / 2
+                            + variations.1),
+                },
+                0x0000FF,
+            );
         }
     }
 
@@ -176,6 +262,11 @@ fn curve_point(p0: PointF, p1: PointF, p2: PointF, t: f32) -> PointF {
     (1.0 - t).powf(2.0) * p0 + 2.0 * t * (1.0 - t) * p1 + t.powf(2.0) * p2
 }
 
+// t goes from 0 to 1
+fn line_point(p0: PointF, direction: PointF, t: f32) -> PointF {
+    p0 + t * direction
+}
+
 #[derive(Clone, Copy)]
 pub struct PointF {
     pub x: f32,
@@ -204,6 +295,17 @@ impl Add<PointF> for PointF {
     }
 }
 
-fn distance(p0: Point, p1: Point) -> usize {
-    (p0.x.abs_diff(p1.x).pow(2) + p0.y.abs_diff(p1.y).pow(2)).isqrt()
+impl Sub<PointF> for PointF {
+    type Output = PointF;
+
+    fn sub(self, rhs: PointF) -> Self::Output {
+        PointF {
+            x: rhs.x - self.x,
+            y: rhs.y - self.y,
+        }
+    }
+}
+
+fn distance(p0: (i16, i16), p1: (i16, i16)) -> u16 {
+    (p0.0.abs_diff(p1.0).pow(2) + p0.1.abs_diff(p1.1).pow(2)).isqrt()
 }
