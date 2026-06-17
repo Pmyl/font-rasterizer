@@ -110,6 +110,9 @@ fn draw_lines(
                 i += 1;
                 println!("SHOULD HAVE DRAWN A CURVE COMING UP WITH A MIDDLE POINT");
                 // come up with the new middle point and draw curve
+                // We nee a p1.5 that is the middle point between p1 and p2
+                // Then we draw a curve between p0 and p1.5
+                // ???? how do we make it so p1.5 stays in memory as the new p0 in the new loop cycle???
             } else {
                 bitmap_maker = draw_curve(
                     glyph,
