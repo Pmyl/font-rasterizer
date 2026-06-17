@@ -6,6 +6,7 @@ pub mod head;
 pub mod loca;
 pub mod mac_os_roman;
 pub mod maxp;
+pub mod rasterizer;
 
 #[derive(Debug)]
 pub struct TrueTypeFont {

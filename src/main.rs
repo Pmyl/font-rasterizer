@@ -10,7 +10,6 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
-use bitmap::Point;
 use font_rasterizer::{
     OffsetSubtable, TableDirectory, TableDirectoryEntry, TrueTypeFont,
     cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0},
@@ -19,6 +18,7 @@ use font_rasterizer::{
     loca::Loca,
     mac_os_roman::from_byte_to_cmap_index,
     maxp::Maxp,
+    rasterizer::rasterize_glyph_to_bitmap,
 };
 
 type Result<T> = core::result::Result<T, Box<dyn Error>>;
@@ -99,66 +99,6 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
-    let padding = 16;
-    let variations_of_big: Vec<(usize, usize)> = vec![
-        (0, 0),
-        (1, 0),
-        (2, 0),
-        (3, 0),
-        (0, 1),
-        (1, 1),
-        (2, 1),
-        (3, 1),
-        (0, 2),
-        (1, 2),
-        (2, 2),
-        (3, 2),
-        (0, 3),
-        (1, 3),
-        (2, 3),
-        (3, 3),
-    ];
-
-    let height = (glyph.y_max - glyph.y_min) as usize + padding;
-    let width = (glyph.x_max - glyph.x_min) as usize + padding;
-    let mut bitmap_maker = bitmap::BitmapMaker::new(width, height);
-
-    match &glyph.definition {
-        GlyfDefinition::Simple(simple_glyf_definition) => {
-            for ((x, y), flag) in simple_glyf_definition
-                .x_coordinates
-                .iter()
-                .zip(&simple_glyf_definition.y_coordinates)
-                .zip(&simple_glyf_definition.flags)
-            {
-                let colour = if flag.on_curve { 0x000000 } else { 0x00FF00 };
-                for variations in &variations_of_big {
-                    bitmap_maker = bitmap_maker.with(
-                        Point {
-                            x: (x - glyph.x_min) as usize + padding / 2 + variations.0,
-                            y: height - ((y - glyph.y_min) as usize + padding / 2 + variations.1),
-                        },
-                        colour,
-                    );
-                }
-            }
-        }
-        GlyfDefinition::Compound => {}
-    }
-
-    let bitmap = bitmap_maker.make().unwrap();
-
-    let mut image_file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("image.bmp")
-        .expect("Should be able to open a file");
-
-    bitmap.write(&mut image_file).unwrap();
 }
 
 fn read_glyf(file: &mut File, entry: &TableDirectoryEntry, loca: &Loca) -> Result<Glyf> {
