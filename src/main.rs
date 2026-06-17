@@ -128,18 +128,20 @@ fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
 
     match &glyph.definition {
         GlyfDefinition::Simple(simple_glyf_definition) => {
-            for (x, y) in simple_glyf_definition
+            for ((x, y), flag) in simple_glyf_definition
                 .x_coordinates
                 .iter()
                 .zip(&simple_glyf_definition.y_coordinates)
+                .zip(&simple_glyf_definition.flags)
             {
+                let colour = if flag.on_curve { 0x000000 } else { 0x00FF00 };
                 for variations in &variations_of_big {
                     bitmap_maker = bitmap_maker.with(
                         Point {
                             x: (x - glyph.x_min) as usize + padding / 2 + variations.0,
                             y: height - ((y - glyph.y_min) as usize + padding / 2 + variations.1),
                         },
-                        0x000000,
+                        colour,
                     );
                 }
             }
