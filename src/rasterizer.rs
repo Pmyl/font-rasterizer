@@ -77,7 +77,11 @@ fn draw_lines(
     let mut i = 0;
 
     let get_p = |index: usize| -> Option<(i16, i16, &GlyfFlag)> {
-        Some((*xs.get(index)?, *ys.get(index)?, flags.get(index)?))
+        if xs.len() == index {
+            Some((*xs.get(0)?, *ys.get(0)?, flags.get(0)?))
+        } else {
+            Some((*xs.get(index)?, *ys.get(index)?, flags.get(index)?))
+        }
     };
 
     loop {
@@ -99,7 +103,6 @@ fn draw_lines(
                 (p0.0, p0.1),
                 (p1.0, p1.1),
             );
-            continue;
         } else {
             i += 1;
             let Some(p2) = get_p(i) else {
