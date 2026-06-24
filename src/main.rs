@@ -3,9 +3,6 @@
 // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6cmap.html
 // xxd -g1 -s 0x7bc -l 268 ./Verdana.ttf | less
 
-mod font;
-mod rasterizer;
-
 use std::{
     env,
     error::Error,
@@ -13,7 +10,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
-use font::{
+use font_rasterizer::font::{
     OffsetSubtable, TableDirectory, TableDirectoryEntry, TrueTypeFont,
     cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0},
     glyf::{Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition},
@@ -23,7 +20,7 @@ use font::{
     maxp::Maxp,
 };
 
-use rasterizer::rasterize_glyph_to_bitmap;
+use font_rasterizer::rasterizer::rasterize_glyph_to_bitmap;
 
 type Result<T> = core::result::Result<T, Box<dyn Error>>;
 
