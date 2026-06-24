@@ -1,4 +1,5 @@
-use crate::{cmap::Cmap, glyf::Glyf};
+use cmap::Cmap;
+use glyf::Glyf;
 
 pub mod cmap;
 pub mod glyf;
@@ -6,7 +7,6 @@ pub mod head;
 pub mod loca;
 pub mod mac_os_roman;
 pub mod maxp;
-pub mod rasterizer;
 
 #[derive(Debug)]
 pub struct TrueTypeFont {

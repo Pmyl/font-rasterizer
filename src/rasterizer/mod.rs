@@ -1,7 +1,10 @@
 use bitmap::Point;
 use std::ops::{Add, Mul, Sub};
 
-use crate::glyf::{GlyfData, GlyfDefinition, GlyfFlag};
+use crate::{
+    font,
+    font::glyf::{GlyfData, GlyfDefinition, GlyfFlag},
+};
 
 pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
     let padding = 16;
@@ -77,7 +80,7 @@ fn draw_lines(
     variations_of_big: &Vec<(usize, usize)>,
     height: usize,
     mut bitmap_maker: bitmap::BitmapMaker,
-    simple_glyf_definition: &crate::glyf::SimpleGlyfDefinition,
+    simple_glyf_definition: &font::glyf::SimpleGlyfDefinition,
     start: usize,
     end: usize,
 ) -> bitmap::BitmapMaker {
@@ -252,7 +255,7 @@ fn draw_points(
     variations_of_big: &Vec<(usize, usize)>,
     height: usize,
     mut bitmap_maker: bitmap::BitmapMaker,
-    simple_glyf_definition: &crate::glyf::SimpleGlyfDefinition,
+    simple_glyf_definition: &font::glyf::SimpleGlyfDefinition,
 ) -> bitmap::BitmapMaker {
     for ((x, y), flag) in simple_glyf_definition
         .x_coordinates
