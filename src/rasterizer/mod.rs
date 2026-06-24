@@ -212,9 +212,11 @@ fn draw_straight_line(
         for variations in variations_of_big {
             bitmap_maker = bitmap_maker.with(
                 Point {
-                    x: (point_on_line.x as i16 - glyph.x_min) as usize + padding / 2 + variations.0,
+                    x: (point_on_line.x.round() as i16 - glyph.x_min) as usize
+                        + padding / 2
+                        + variations.0,
                     y: height
-                        - ((point_on_line.y as i16 - glyph.y_min) as usize
+                        - ((point_on_line.y.round() as i16 - glyph.y_min) as usize
                             + padding / 2
                             + variations.1),
                 },
