@@ -40,9 +40,7 @@ fn main() -> Result<()> {
         .next()
         .unwrap();
 
-    let target_file_name = args
-        .next()
-        .unwrap_or("rendered_fonts/image.bmp".to_string());
+    let target_file_name = args.next().unwrap_or("images/image.bmp".to_string());
 
     let target_file_path = Path::new(&target_file_name);
 
