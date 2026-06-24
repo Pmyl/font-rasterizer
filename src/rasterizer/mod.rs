@@ -3,7 +3,7 @@ use std::ops::{Add, Mul, Sub};
 
 use crate::{
     font,
-    font::glyf::{GlyfData, GlyfDefinition, GlyfFlag},
+    font::glyf::{GlyfData, GlyfDefinition},
 };
 
 pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
@@ -90,16 +90,21 @@ fn draw_lines(
 
     let mut i = 0;
 
-    let get_p = |index: usize| -> Option<(i16, i16, &GlyfFlag)> {
+    let get_p = |index: usize| -> Option<(i16, i16, bool)> {
         if xs.len() == index {
-            Some((*xs.get(0)?, *ys.get(0)?, flags.get(0)?))
+            Some((*xs.get(0)?, *ys.get(0)?, flags.get(0).map(|f| f.on_curve)?))
         } else {
-            Some((*xs.get(index)?, *ys.get(index)?, flags.get(index)?))
+            Some((
+                *xs.get(index)?,
+                *ys.get(index)?,
+                flags.get(index).map(|f| f.on_curve)?,
+            ))
         }
     };
 
+    let mut virtual_p0 = None;
     loop {
-        let Some(p0) = get_p(i) else {
+        let Some(p0) = virtual_p0.take().or_else(|| get_p(i)) else {
             break;
         };
         i += 1;
@@ -107,7 +112,7 @@ fn draw_lines(
             break;
         };
 
-        if p1.2.on_curve {
+        if p1.2 {
             bitmap_maker = draw_straight_line(
                 glyph,
                 padding,
@@ -123,13 +128,27 @@ fn draw_lines(
                 break;
             };
 
-            if !p2.2.on_curve {
-                i += 1;
-                println!("SHOULD HAVE DRAWN A CURVE COMING UP WITH A MIDDLE POINT");
-                // come up with the new middle point and draw curve
-                // We nee a p1.5 that is the middle point between p1 and p2
-                // Then we draw a curve between p0 and p1.5
-                // ???? how do we make it so p1.5 stays in memory as the new p0 in the new loop cycle???
+            if !p2.2 {
+                i -= 1;
+
+                // b + (a-b)/ 2
+                let vp2 = add_points(
+                    (p2.0, p2.1),
+                    divide_point(sub_points((p1.0, p1.1), (p2.0, p2.1)), 2),
+                );
+
+                bitmap_maker = draw_curve(
+                    glyph,
+                    padding,
+                    variations_of_big,
+                    height,
+                    bitmap_maker,
+                    (p0.0, p0.1),
+                    (p1.0, p1.1),
+                    (vp2.0, vp2.1),
+                );
+
+                virtual_p0 = Some((vp2.0, vp2.1, true));
             } else {
                 bitmap_maker = draw_curve(
                     glyph,
@@ -146,6 +165,18 @@ fn draw_lines(
     }
 
     bitmap_maker
+}
+
+fn sub_points(a: (i16, i16), b: (i16, i16)) -> (i16, i16) {
+    (a.0 - b.0, a.1 - b.1)
+}
+
+fn add_points(a: (i16, i16), b: (i16, i16)) -> (i16, i16) {
+    (a.0 + b.0, a.1 + b.1)
+}
+
+fn divide_point(a: (i16, i16), scalar: i16) -> (i16, i16) {
+    (a.0 / scalar, a.1 / scalar)
 }
 
 fn draw_straight_line(
@@ -233,11 +264,11 @@ fn draw_curve(
         for variations in variations_of_big {
             bitmap_maker = bitmap_maker.with(
                 Point {
-                    x: (point_on_curve.x as i16 - glyph.x_min) as usize
+                    x: (point_on_curve.x.round() as i16 - glyph.x_min) as usize
                         + padding / 2
                         + variations.0,
                     y: height
-                        - ((point_on_curve.y as i16 - glyph.y_min) as usize
+                        - ((point_on_curve.y.round() as i16 - glyph.y_min) as usize
                             + padding / 2
                             + variations.1),
                 },
