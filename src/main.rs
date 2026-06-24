@@ -46,20 +46,18 @@ fn main() -> Result<()> {
 
     let target_file_path = Path::new(&target_file_name);
 
-    dbg!(&filename);
-
     let mut file = OpenOptions::new().read(true).open(filename)?;
 
     let font = file_to_true_type_font(&mut file)?;
 
-    dbg!(&font.cmap);
+    // dbg!(&font.cmap);
 
     match &font.cmap.subtables[0] {
         CmapSubtable::Format0(format0) => {
             let cmap_index = from_byte_to_cmap_index(character_to_show);
             let index = format0.glyph_index_array[cmap_index];
             let glyph = &font.glyf.glyphs[index as usize];
-            println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
+            // println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
 
             rasterize_glyph_to_bitmap(glyph, &target_file_path);
         }
@@ -90,8 +88,8 @@ fn file_to_true_type_font(file: &mut File) -> Result<TrueTypeFont> {
         table_directory.add_entry(entry);
     }
 
-    dbg!(&offset_subtable);
-    dbg!(&table_directory);
+    // dbg!(&offset_subtable);
+    // dbg!(&table_directory);
 
     let cmap_entry = table_directory.get(b"cmap")?;
     let cmap = read_cmap(file, cmap_entry.offset, cmap_entry.length)?;
@@ -111,7 +109,7 @@ fn file_to_true_type_font(file: &mut File) -> Result<TrueTypeFont> {
         glyf,
     };
 
-    dbg!(&font.cmap);
+    // dbg!(&font.cmap);
     return Ok(font);
 }
 
