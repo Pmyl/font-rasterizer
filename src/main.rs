@@ -8,6 +8,7 @@ use std::{
     error::Error,
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom},
+    path::Path,
 };
 
 use font_rasterizer::font::{
@@ -39,6 +40,12 @@ fn main() -> Result<()> {
         .next()
         .unwrap();
 
+    let target_file_name = args
+        .next()
+        .unwrap_or("rendered_fonts/image.bmp".to_string());
+
+    let target_file_path = Path::new(&target_file_name);
+
     dbg!(&filename);
 
     let mut file = OpenOptions::new().read(true).open(filename)?;
@@ -54,7 +61,7 @@ fn main() -> Result<()> {
             let glyph = &font.glyf.glyphs[index as usize];
             println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
 
-            rasterize_glyph_to_bitmap(glyph);
+            rasterize_glyph_to_bitmap(glyph, &target_file_path);
         }
         CmapSubtable::Unhandled { .. } => {}
     }

@@ -1,12 +1,16 @@
 use bitmap::Point;
-use std::ops::{Add, Mul, Sub};
+use std::{
+    fs::create_dir_all,
+    ops::{Add, Mul, Sub},
+    path::Path,
+};
 
 use crate::{
     font,
     font::glyf::{GlyfData, GlyfDefinition},
 };
 
-pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
+pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
     let padding = 16;
     let variations_of_big: Vec<(usize, usize)> = vec![
         (0, 0),
@@ -64,11 +68,13 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
 
     let bitmap = bitmap_maker.make().unwrap();
 
+    create_dir_all(file_path.parent().unwrap()).unwrap();
+
     let mut image_file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open("image.bmp")
+        .open(file_path)
         .expect("Should be able to open a file");
 
     bitmap.write(&mut image_file).unwrap();
