@@ -50,16 +50,29 @@ fn main() -> Result<()> {
 
     // dbg!(&font.cmap);
 
-    match &font.cmap.subtables[0] {
-        CmapSubtable::Format0(format0) => {
-            let cmap_index = from_byte_to_cmap_index(character_to_show);
-            let index = format0.glyph_index_array[cmap_index];
-            let glyph = &font.glyf.glyphs[index as usize];
-            // println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
+    let mut printed = false;
 
-            rasterize_glyph_to_bitmap(glyph, &target_file_path);
+    for subtable in &font.cmap.subtables {
+        match &subtable {
+            CmapSubtable::Format0(format0) => {
+                let cmap_index = from_byte_to_cmap_index(character_to_show);
+                let index = format0.glyph_index_array[cmap_index];
+                let glyph = &font.glyf.glyphs[index as usize];
+                // println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
+
+                rasterize_glyph_to_bitmap(glyph, &target_file_path);
+                printed = true;
+                break;
+            }
+            CmapSubtable::Unhandled { .. } => {}
         }
-        CmapSubtable::Unhandled { .. } => {}
+    }
+
+    if !printed {
+        eprintln!(
+            "Format0 not found, only these formats exist: {:?}",
+            font.cmap.subtables
+        );
     }
 
     Ok(())
