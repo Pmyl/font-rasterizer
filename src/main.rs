@@ -42,47 +42,7 @@ fn main() -> Result<()> {
 
     let mut file = OpenOptions::new().read(true).open(filename)?;
 
-    let offset_subtable = OffsetSubtable {
-        scaler_type: read_u32(&mut file).map_err(|e| format!("Reading scaler type {}", e))?,
-        number_of_tables: read_u16(&mut file)
-            .map_err(|e| format!("Reading number_of_tables {}", e))?,
-        search_range: read_u16(&mut file).map_err(|e| format!("Reading search_range {}", e))?,
-        entry_selector: read_u16(&mut file).map_err(|e| format!("Reading entry_selector {}", e))?,
-        range_shift: read_u16(&mut file).map_err(|e| format!("Reading range_shift {}", e))?,
-    };
-
-    let mut table_directory = TableDirectory::new(offset_subtable.number_of_tables as usize);
-    for _ in 0..offset_subtable.number_of_tables {
-        let entry = TableDirectoryEntry {
-            tag: read_bytes::<4>(&mut file).map_err(|e| format!("Reading tag {}", e))?,
-            check_sum: read_u32(&mut file).map_err(|e| format!("Reading check_sum {}", e))?,
-            offset: read_u32(&mut file).map_err(|e| format!("Reading offset {}", e))?,
-            length: read_u32(&mut file).map_err(|e| format!("Reading length {}", e))?,
-        };
-
-        table_directory.add_entry(entry);
-    }
-
-    dbg!(&offset_subtable);
-    dbg!(&table_directory);
-
-    let cmap_entry = table_directory.get(b"cmap")?;
-    let cmap = read_cmap(&mut file, cmap_entry.offset, cmap_entry.length)?;
-    let maxp_entry = table_directory.get(b"maxp")?;
-    let maxp = read_maxp(&mut file, maxp_entry.offset, maxp_entry.length)?;
-    let head_entry = table_directory.get(b"head")?;
-    let head = read_head(&mut file, head_entry)?;
-    let loca_entry = table_directory.get(b"loca")?;
-    let loca = read_loca(&mut file, loca_entry, &head, &maxp)?;
-    let glyf_entry = table_directory.get(b"glyf")?;
-    let glyf = read_glyf(&mut file, glyf_entry, &loca)?;
-
-    let font = TrueTypeFont {
-        offset_subtable,
-        table_directory,
-        cmap,
-        glyf,
-    };
+    let font = file_to_true_type_font(&mut file)?;
 
     dbg!(&font.cmap);
 
@@ -99,6 +59,52 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn file_to_true_type_font(file: &mut File) -> Result<TrueTypeFont> {
+    let offset_subtable = OffsetSubtable {
+        scaler_type: read_u32(file).map_err(|e| format!("Reading scaler type {}", e))?,
+        number_of_tables: read_u16(file).map_err(|e| format!("Reading number_of_tables {}", e))?,
+        search_range: read_u16(file).map_err(|e| format!("Reading search_range {}", e))?,
+        entry_selector: read_u16(file).map_err(|e| format!("Reading entry_selector {}", e))?,
+        range_shift: read_u16(file).map_err(|e| format!("Reading range_shift {}", e))?,
+    };
+
+    let mut table_directory = TableDirectory::new(offset_subtable.number_of_tables as usize);
+    for _ in 0..offset_subtable.number_of_tables {
+        let entry = TableDirectoryEntry {
+            tag: read_bytes::<4>(file).map_err(|e| format!("Reading tag {}", e))?,
+            check_sum: read_u32(file).map_err(|e| format!("Reading check_sum {}", e))?,
+            offset: read_u32(file).map_err(|e| format!("Reading offset {}", e))?,
+            length: read_u32(file).map_err(|e| format!("Reading length {}", e))?,
+        };
+
+        table_directory.add_entry(entry);
+    }
+
+    dbg!(&offset_subtable);
+    dbg!(&table_directory);
+
+    let cmap_entry = table_directory.get(b"cmap")?;
+    let cmap = read_cmap(file, cmap_entry.offset, cmap_entry.length)?;
+    let maxp_entry = table_directory.get(b"maxp")?;
+    let maxp = read_maxp(file, maxp_entry.offset, maxp_entry.length)?;
+    let head_entry = table_directory.get(b"head")?;
+    let head = read_head(file, head_entry)?;
+    let loca_entry = table_directory.get(b"loca")?;
+    let loca = read_loca(file, loca_entry, &head, &maxp)?;
+    let glyf_entry = table_directory.get(b"glyf")?;
+    let glyf = read_glyf(file, glyf_entry, &loca)?;
+
+    let font = TrueTypeFont {
+        offset_subtable,
+        table_directory,
+        cmap,
+        glyf,
+    };
+
+    dbg!(&font.cmap);
+    return Ok(font);
 }
 
 fn read_glyf(file: &mut File, entry: &TableDirectoryEntry, loca: &Loca) -> Result<Glyf> {

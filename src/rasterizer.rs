@@ -310,5 +310,5 @@ impl Sub<PointF> for PointF {
 }
 
 fn distance(p0: (i16, i16), p1: (i16, i16)) -> u16 {
-    (p0.0.abs_diff(p1.0).pow(2) + p0.1.abs_diff(p1.1).pow(2)).isqrt()
+    ((p0.0.abs_diff(p1.0) as usize).pow(2) + (p0.1.abs_diff(p1.1) as usize).pow(2)).isqrt() as u16
 }
