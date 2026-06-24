@@ -30,14 +30,23 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData) {
 
     match &glyph.definition {
         GlyfDefinition::Simple(simple_glyf_definition) => {
-            bitmap_maker = draw_lines(
-                glyph,
-                padding,
-                &variations_of_big,
-                height,
-                bitmap_maker,
-                simple_glyf_definition,
-            );
+            let mut start = 0;
+
+            for countor in &simple_glyf_definition.end_pts_of_contours {
+                let end = countor;
+                bitmap_maker = draw_lines(
+                    glyph,
+                    padding,
+                    &variations_of_big,
+                    height,
+                    bitmap_maker,
+                    simple_glyf_definition,
+                    start,
+                    *end as usize,
+                );
+                start = *end as usize + 1;
+            }
+
             bitmap_maker = draw_points(
                 glyph,
                 padding,
@@ -69,10 +78,12 @@ fn draw_lines(
     height: usize,
     mut bitmap_maker: bitmap::BitmapMaker,
     simple_glyf_definition: &crate::glyf::SimpleGlyfDefinition,
+    start: usize,
+    end: usize,
 ) -> bitmap::BitmapMaker {
-    let xs = &simple_glyf_definition.x_coordinates;
-    let ys = &simple_glyf_definition.y_coordinates;
-    let flags = &simple_glyf_definition.flags;
+    let xs = &simple_glyf_definition.x_coordinates[start..=end];
+    let ys = &simple_glyf_definition.y_coordinates[start..=end];
+    let flags = &simple_glyf_definition.flags[start..=end];
 
     let mut i = 0;
 
