@@ -10,30 +10,38 @@ use crate::{
     font::glyf::{GlyfData, GlyfDefinition},
 };
 
+#[derive(Clone, Copy)]
+enum PixelInfo {
+    Empty,
+    Zero, // SD
+    One,  // DS
+}
+
 pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
     let padding = 16;
     let variations_of_big: Vec<(usize, usize)> = vec![
         (0, 0),
-        (1, 0),
-        (2, 0),
-        (3, 0),
-        (0, 1),
-        (1, 1),
-        (2, 1),
-        (3, 1),
-        (0, 2),
-        (1, 2),
-        (2, 2),
-        (3, 2),
-        (0, 3),
-        (1, 3),
-        (2, 3),
-        (3, 3),
+        // (1, 0),
+        // (2, 0),
+        // (3, 0),
+        // (0, 1),
+        // (1, 1),
+        // (2, 1),
+        // (3, 1),
+        // (0, 2),
+        // (1, 2),
+        // (2, 2),
+        // (3, 2),
+        // (0, 3),
+        // (1, 3),
+        // (2, 3),
+        // (3, 3),
     ];
 
     let height = (glyph.y_max - glyph.y_min) as usize + padding;
     let width = (glyph.x_max - glyph.x_min) as usize + padding;
     let mut bitmap_maker = bitmap::BitmapMaker::new(width, height);
+    let mut pixel_map: Vec<PixelInfo> = vec![PixelInfo::Empty; width * height];
 
     match &glyph.definition {
         GlyfDefinition::Simple(simple_glyf_definition) => {
@@ -45,8 +53,10 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
                     glyph,
                     padding,
                     &variations_of_big,
+                    width,
                     height,
                     bitmap_maker,
+                    &mut pixel_map,
                     simple_glyf_definition,
                     start,
                     *end as usize,
@@ -66,6 +76,8 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
         GlyfDefinition::Compound => {}
     }
 
+    bitmap_maker = fill_glyph(width, height, pixel_map, bitmap_maker);
+
     let bitmap = bitmap_maker.make().unwrap();
 
     create_dir_all(file_path.parent().unwrap()).unwrap();
@@ -84,8 +96,10 @@ fn draw_lines(
     glyph: &GlyfData,
     padding: usize,
     variations_of_big: &Vec<(usize, usize)>,
+    width: usize,
     height: usize,
     mut bitmap_maker: bitmap::BitmapMaker,
+    pixel_map: &mut Vec<PixelInfo>,
     simple_glyf_definition: &font::glyf::SimpleGlyfDefinition,
     start: usize,
     end: usize,
@@ -123,8 +137,10 @@ fn draw_lines(
                 glyph,
                 padding,
                 variations_of_big,
+                width,
                 height,
                 bitmap_maker,
+                pixel_map,
                 (p0.0, p0.1),
                 (p1.0, p1.1),
             );
@@ -147,8 +163,10 @@ fn draw_lines(
                     glyph,
                     padding,
                     variations_of_big,
+                    width,
                     height,
                     bitmap_maker,
+                    pixel_map,
                     (p0.0, p0.1),
                     (p1.0, p1.1),
                     (vp2.0, vp2.1),
@@ -160,8 +178,10 @@ fn draw_lines(
                     glyph,
                     padding,
                     variations_of_big,
+                    width,
                     height,
                     bitmap_maker,
+                    pixel_map,
                     (p0.0, p0.1),
                     (p1.0, p1.1),
                     (p2.0, p2.1),
@@ -189,12 +209,19 @@ fn draw_straight_line(
     glyph: &GlyfData,
     padding: usize,
     variations_of_big: &Vec<(usize, usize)>,
+    width: usize,
     height: usize,
     mut bitmap_maker: bitmap::BitmapMaker,
+    pixel_map: &mut Vec<PixelInfo>,
     p0: (i16, i16),
     p1: (i16, i16),
 ) -> bitmap::BitmapMaker {
     let total_distance = distance((p0.0, p0.1), (p1.0, p1.1));
+    let pixel_info = if p0.1 > p1.1 {
+        PixelInfo::Zero
+    } else {
+        PixelInfo::One
+    };
 
     let mut t: f32 = 0.0;
     let step: f32 = 1.0 / total_distance as f32;
@@ -215,18 +242,22 @@ fn draw_straight_line(
         t += step;
         let point_on_line = line_point(p0, direction, t);
 
+        let x = (point_on_line.x.round() as i16 - glyph.x_min) as usize + padding / 2;
+        let y = (point_on_line.y.round() as i16 - glyph.y_min) as usize + padding / 2;
+
+        pixel_map[x + y * width] = pixel_info;
+
         for variations in variations_of_big {
             bitmap_maker = bitmap_maker.with(
                 Point {
-                    x: (point_on_line.x.round() as i16 - glyph.x_min) as usize
-                        + padding / 2
-                        + variations.0,
-                    y: height
-                        - ((point_on_line.y.round() as i16 - glyph.y_min) as usize
-                            + padding / 2
-                            + variations.1),
+                    x: x + variations.0,
+                    y: height - (y + variations.1),
                 },
-                0x0000FF,
+                match pixel_info {
+                    PixelInfo::Empty => 0x0000FF,
+                    PixelInfo::Zero => 0x000044,
+                    PixelInfo::One => 0x004400,
+                },
             );
         }
     }
@@ -238,15 +269,23 @@ fn draw_curve(
     glyph: &GlyfData,
     padding: usize,
     variations_of_big: &Vec<(usize, usize)>,
+    width: usize,
     height: usize,
     mut bitmap_maker: bitmap::BitmapMaker,
+    pixel_map: &mut Vec<PixelInfo>,
     p0: (i16, i16),
     p1: (i16, i16),
     p2: (i16, i16),
 ) -> bitmap::BitmapMaker {
     let p0_to_p1_distance = distance((p0.0, p0.1), (p1.0, p1.1));
     let p1_to_p2_distance = distance((p1.0, p1.1), (p2.0, p2.1));
-    let total_distance = p0_to_p1_distance + p1_to_p2_distance;
+    let total_distance = (p0_to_p1_distance + p1_to_p2_distance) * 10;
+
+    let pixel_info = if p0.1 > p2.1 {
+        PixelInfo::Zero
+    } else {
+        PixelInfo::One
+    };
 
     let mut t: f32 = 0.0;
     let step: f32 = 1.0 / total_distance as f32;
@@ -269,18 +308,23 @@ fn draw_curve(
     for _ in 0..total_distance {
         t += step;
         let point_on_curve = curve_point(p0, p1, p2, t);
+
+        let x = (point_on_curve.x.round() as i16 - glyph.x_min) as usize + padding / 2;
+        let y = (point_on_curve.y.round() as i16 - glyph.y_min) as usize + padding / 2;
+
+        pixel_map[x + y * width] = pixel_info;
+
         for variations in variations_of_big {
             bitmap_maker = bitmap_maker.with(
                 Point {
-                    x: (point_on_curve.x.round() as i16 - glyph.x_min) as usize
-                        + padding / 2
-                        + variations.0,
-                    y: height
-                        - ((point_on_curve.y.round() as i16 - glyph.y_min) as usize
-                            + padding / 2
-                            + variations.1),
+                    x: x + variations.0,
+                    y: height - (y + variations.1),
                 },
-                0x0000FF,
+                match pixel_info {
+                    PixelInfo::Empty => 0x0000FF,
+                    PixelInfo::Zero => 0x000044,
+                    PixelInfo::One => 0x004400,
+                },
             );
         }
     }
@@ -311,6 +355,54 @@ fn draw_points(
                 },
                 colour,
             );
+        }
+    }
+
+    bitmap_maker
+}
+
+fn fill_glyph(
+    width: usize,
+    height: usize,
+    pixel_map: Vec<PixelInfo>,
+    mut bitmap_maker: bitmap::BitmapMaker,
+) -> bitmap::BitmapMaker {
+    for x in 0..width {
+        for y in 0..height {
+            let PixelInfo::Empty = pixel_map[x + y * width] else {
+                // Fill point? (if we do this, we can remove the draw of the point on the curve)
+                continue;
+            };
+
+            let mut x0 = x;
+            let mut crossing_count = 0;
+            let mut last_touched = false;
+
+            loop {
+                x0 += 1;
+
+                if x0 == width {
+                    break;
+                }
+
+                match pixel_map[x0 + y * width] {
+                    PixelInfo::Empty => last_touched = false,
+                    PixelInfo::Zero if last_touched == false => {
+                        crossing_count += 1;
+                        last_touched = true;
+                    }
+                    PixelInfo::One if last_touched == false => {
+                        crossing_count -= 1;
+                        last_touched = true;
+                    }
+                    _ => {}
+                }
+            }
+
+            if crossing_count != 0 {
+                // Inside
+                bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF440000);
+            }
         }
     }
 
