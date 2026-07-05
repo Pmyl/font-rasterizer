@@ -6,63 +6,59 @@ use std::{
 };
 
 use crate::{
-    font,
-    font::glyf::{GlyfData, GlyfDefinition},
+    font::{
+        self,
+        glyf::{GlyfData, GlyfDefinition, GlyfFlag},
+    },
+    rasterizer::pixel_map::{PixelInfo, PixelMap},
 };
 
-#[derive(Clone, Copy)]
-enum PixelInfo {
-    Empty,
-    Zero, // SD
-    One,  // DS
-}
+mod pixel_map;
 
 pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
     let padding = 16;
     let variations_of_big: Vec<(usize, usize)> = vec![
         (0, 0),
-        // (1, 0),
-        // (2, 0),
-        // (3, 0),
-        // (0, 1),
-        // (1, 1),
-        // (2, 1),
-        // (3, 1),
-        // (0, 2),
-        // (1, 2),
-        // (2, 2),
-        // (3, 2),
-        // (0, 3),
-        // (1, 3),
-        // (2, 3),
-        // (3, 3),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (0, 1),
+        (1, 1),
+        (2, 1),
+        (3, 1),
+        (0, 2),
+        (1, 2),
+        (2, 2),
+        (3, 2),
+        (0, 3),
+        (1, 3),
+        (2, 3),
+        (3, 3),
     ];
 
     let height = (glyph.y_max - glyph.y_min) as usize + padding;
     let width = (glyph.x_max - glyph.x_min) as usize + padding;
     let mut bitmap_maker = bitmap::BitmapMaker::new(width, height);
-    let mut pixel_map: Vec<PixelInfo> = vec![PixelInfo::Empty; width * height];
+    let mut pixel_map = PixelMap::new(width, height);
 
     match &glyph.definition {
         GlyfDefinition::Simple(simple_glyf_definition) => {
             let mut start = 0;
 
-            for countor in &simple_glyf_definition.end_pts_of_contours {
-                let end = countor;
-                bitmap_maker = draw_lines(
+            for contour in &simple_glyf_definition.end_pts_of_contours {
+                let end = *contour as usize;
+                draw_contour(
                     glyph,
                     padding,
-                    &variations_of_big,
-                    width,
-                    height,
-                    bitmap_maker,
                     &mut pixel_map,
-                    simple_glyf_definition,
-                    start,
-                    *end as usize,
+                    &simple_glyf_definition.x_coordinates[start..=end],
+                    &simple_glyf_definition.y_coordinates[start..=end],
+                    &simple_glyf_definition.flags[start..=end],
                 );
-                start = *end as usize + 1;
+                start = end + 1;
             }
+
+            bitmap_maker = fill_glyph(width, height, pixel_map, bitmap_maker);
 
             bitmap_maker = draw_points(
                 glyph,
@@ -75,8 +71,6 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
         }
         GlyfDefinition::Compound => {}
     }
-
-    bitmap_maker = fill_glyph(width, height, pixel_map, bitmap_maker);
 
     let bitmap = bitmap_maker.make().unwrap();
 
@@ -92,22 +86,14 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
     bitmap.write(&mut image_file).unwrap();
 }
 
-fn draw_lines(
+fn draw_contour(
     glyph: &GlyfData,
     padding: usize,
-    variations_of_big: &Vec<(usize, usize)>,
-    width: usize,
-    height: usize,
-    mut bitmap_maker: bitmap::BitmapMaker,
-    pixel_map: &mut Vec<PixelInfo>,
-    simple_glyf_definition: &font::glyf::SimpleGlyfDefinition,
-    start: usize,
-    end: usize,
-) -> bitmap::BitmapMaker {
-    let xs = &simple_glyf_definition.x_coordinates[start..=end];
-    let ys = &simple_glyf_definition.y_coordinates[start..=end];
-    let flags = &simple_glyf_definition.flags[start..=end];
-
+    pixel_map: &mut PixelMap,
+    xs: &[i16],
+    ys: &[i16],
+    flags: &[GlyfFlag],
+) {
     let mut i = 0;
 
     let get_p = |index: usize| -> Option<(i16, i16, bool)> {
@@ -133,17 +119,7 @@ fn draw_lines(
         };
 
         if p1.2 {
-            bitmap_maker = draw_straight_line(
-                glyph,
-                padding,
-                variations_of_big,
-                width,
-                height,
-                bitmap_maker,
-                pixel_map,
-                (p0.0, p0.1),
-                (p1.0, p1.1),
-            );
+            draw_straight_line(glyph, padding, pixel_map, (p0.0, p0.1), (p1.0, p1.1));
         } else {
             i += 1;
             let Some(p2) = get_p(i) else {
@@ -159,13 +135,9 @@ fn draw_lines(
                     divide_point(sub_points((p1.0, p1.1), (p2.0, p2.1)), 2),
                 );
 
-                bitmap_maker = draw_curve(
+                draw_curve(
                     glyph,
                     padding,
-                    variations_of_big,
-                    width,
-                    height,
-                    bitmap_maker,
                     pixel_map,
                     (p0.0, p0.1),
                     (p1.0, p1.1),
@@ -174,13 +146,9 @@ fn draw_lines(
 
                 virtual_p0 = Some((vp2.0, vp2.1, true));
             } else {
-                bitmap_maker = draw_curve(
+                draw_curve(
                     glyph,
                     padding,
-                    variations_of_big,
-                    width,
-                    height,
-                    bitmap_maker,
                     pixel_map,
                     (p0.0, p0.1),
                     (p1.0, p1.1),
@@ -189,8 +157,6 @@ fn draw_lines(
             }
         }
     }
-
-    bitmap_maker
 }
 
 fn sub_points(a: (i16, i16), b: (i16, i16)) -> (i16, i16) {
@@ -208,14 +174,10 @@ fn divide_point(a: (i16, i16), scalar: i16) -> (i16, i16) {
 fn draw_straight_line(
     glyph: &GlyfData,
     padding: usize,
-    variations_of_big: &Vec<(usize, usize)>,
-    width: usize,
-    height: usize,
-    mut bitmap_maker: bitmap::BitmapMaker,
-    pixel_map: &mut Vec<PixelInfo>,
+    pixel_map: &mut PixelMap,
     p0: (i16, i16),
     p1: (i16, i16),
-) -> bitmap::BitmapMaker {
+) {
     let total_distance = distance((p0.0, p0.1), (p1.0, p1.1));
     let pixel_info = if p0.1 > p1.1 {
         PixelInfo::Zero
@@ -245,38 +207,18 @@ fn draw_straight_line(
         let x = (point_on_line.x.round() as i16 - glyph.x_min) as usize + padding / 2;
         let y = (point_on_line.y.round() as i16 - glyph.y_min) as usize + padding / 2;
 
-        pixel_map[x + y * width] = pixel_info;
-
-        for variations in variations_of_big {
-            bitmap_maker = bitmap_maker.with(
-                Point {
-                    x: x + variations.0,
-                    y: height - (y + variations.1),
-                },
-                match pixel_info {
-                    PixelInfo::Empty => 0x0000FF,
-                    PixelInfo::Zero => 0x000044,
-                    PixelInfo::One => 0x004400,
-                },
-            );
-        }
+        pixel_map.set(pixel_info, x, y);
     }
-
-    bitmap_maker
 }
 
 fn draw_curve(
     glyph: &GlyfData,
     padding: usize,
-    variations_of_big: &Vec<(usize, usize)>,
-    width: usize,
-    height: usize,
-    mut bitmap_maker: bitmap::BitmapMaker,
-    pixel_map: &mut Vec<PixelInfo>,
+    pixel_map: &mut PixelMap,
     p0: (i16, i16),
     p1: (i16, i16),
     p2: (i16, i16),
-) -> bitmap::BitmapMaker {
+) {
     let p0_to_p1_distance = distance((p0.0, p0.1), (p1.0, p1.1));
     let p1_to_p2_distance = distance((p1.0, p1.1), (p2.0, p2.1));
     let total_distance = (p0_to_p1_distance + p1_to_p2_distance) * 10;
@@ -312,24 +254,8 @@ fn draw_curve(
         let x = (point_on_curve.x.round() as i16 - glyph.x_min) as usize + padding / 2;
         let y = (point_on_curve.y.round() as i16 - glyph.y_min) as usize + padding / 2;
 
-        pixel_map[x + y * width] = pixel_info;
-
-        for variations in variations_of_big {
-            bitmap_maker = bitmap_maker.with(
-                Point {
-                    x: x + variations.0,
-                    y: height - (y + variations.1),
-                },
-                match pixel_info {
-                    PixelInfo::Empty => 0x0000FF,
-                    PixelInfo::Zero => 0x000044,
-                    PixelInfo::One => 0x004400,
-                },
-            );
-        }
+        pixel_map.set(pixel_info, x, y);
     }
-
-    bitmap_maker
 }
 
 fn draw_points(
@@ -366,13 +292,14 @@ fn draw_points(
 fn fill_glyph(
     width: usize,
     height: usize,
-    pixel_map: Vec<PixelInfo>,
+    pixel_map: PixelMap,
     mut bitmap_maker: bitmap::BitmapMaker,
 ) -> bitmap::BitmapMaker {
     for x in 0..width {
         for y in 0..height {
-            let PixelInfo::Empty = pixel_map[x + y * width] else {
-                // Fill point? (if we do this, we can remove the draw of the point on the curve)
+            let PixelInfo::Empty = pixel_map.get_unchecked(x, y) else {
+                // Contour
+                bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0x44FF0000);
                 continue;
             };
 
@@ -387,7 +314,7 @@ fn fill_glyph(
                     break;
                 }
 
-                match pixel_map[x0 + y * width] {
+                match pixel_map.get_unchecked(x0, y) {
                     PixelInfo::Empty => last_touched = false,
                     PixelInfo::Zero if last_touched == false => {
                         crossing_count += 1;
