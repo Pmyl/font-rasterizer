@@ -3,6 +3,9 @@ pub enum PixelInfo {
     Empty,
     Zero, // SD
     One,  // DS
+    InvisibleVertex,
+    VisibleVertexZero,
+    VisibleVertexOne,
 }
 
 pub struct PixelMap {

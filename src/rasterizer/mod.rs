@@ -86,6 +86,13 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
     bitmap.write(&mut image_file).unwrap();
 }
 
+#[derive(Clone)]
+struct ContourPoint {
+    x: i16,
+    y: i16,
+    on_curve: bool,
+}
+
 fn draw_contour(
     glyph: &GlyfData,
     padding: usize,
@@ -95,16 +102,21 @@ fn draw_contour(
     flags: &[GlyfFlag],
 ) {
     let mut i = 0;
+    let mut vertices = vec![];
 
-    let get_p = |index: usize| -> Option<(i16, i16, bool)> {
+    let get_p = |index: usize| -> Option<ContourPoint> {
         if xs.len() == index {
-            Some((*xs.get(0)?, *ys.get(0)?, flags.get(0).map(|f| f.on_curve)?))
+            Some(ContourPoint {
+                x: *xs.get(0)?,
+                y: *ys.get(0)?,
+                on_curve: flags.get(0).map(|f| f.on_curve)?,
+            })
         } else {
-            Some((
-                *xs.get(index)?,
-                *ys.get(index)?,
-                flags.get(index).map(|f| f.on_curve)?,
-            ))
+            Some(ContourPoint {
+                x: *xs.get(index)?,
+                y: *ys.get(index)?,
+                on_curve: flags.get(index).map(|f| f.on_curve)?,
+            })
         }
     };
 
@@ -113,48 +125,87 @@ fn draw_contour(
         let Some(p0) = virtual_p0.take().or_else(|| get_p(i)) else {
             break;
         };
+
+        vertices.push(p0.clone());
+
         i += 1;
         let Some(p1) = get_p(i) else {
             break;
         };
 
-        if p1.2 {
-            draw_straight_line(glyph, padding, pixel_map, (p0.0, p0.1), (p1.0, p1.1));
+        if p1.on_curve {
+            draw_straight_line(glyph, padding, pixel_map, (p0.x, p0.y), (p1.x, p1.y));
         } else {
             i += 1;
             let Some(p2) = get_p(i) else {
                 break;
             };
 
-            if !p2.2 {
+            if !p2.on_curve {
                 i -= 1;
 
                 // b + (a-b)/ 2
                 let vp2 = add_points(
-                    (p2.0, p2.1),
-                    divide_point(sub_points((p1.0, p1.1), (p2.0, p2.1)), 2),
+                    (p2.x, p2.y),
+                    divide_point(sub_points((p1.x, p1.y), (p2.x, p2.y)), 2),
                 );
 
                 draw_curve(
                     glyph,
                     padding,
                     pixel_map,
-                    (p0.0, p0.1),
-                    (p1.0, p1.1),
+                    (p0.x, p0.y),
+                    (p1.x, p1.y),
                     (vp2.0, vp2.1),
                 );
 
-                virtual_p0 = Some((vp2.0, vp2.1, true));
+                virtual_p0 = Some(ContourPoint {
+                    x: vp2.0,
+                    y: vp2.1,
+                    on_curve: true,
+                });
             } else {
                 draw_curve(
                     glyph,
                     padding,
                     pixel_map,
-                    (p0.0, p0.1),
-                    (p1.0, p1.1),
-                    (p2.0, p2.1),
+                    (p0.x, p0.y),
+                    (p1.x, p1.y),
+                    (p2.x, p2.y),
                 );
             }
+        }
+    }
+
+    vertices.push(vertices[1].clone());
+    for window in vertices.array_windows::<3>() {
+        let prev = &window[0];
+        let current = &window[1];
+        let next = &window[2];
+
+        if (prev.y > current.y && current.y < next.y)
+            || (prev.y < current.y && current.y > next.y)
+            || (next.y == current.y && current.y < prev.y)
+            || (prev.y == current.y && current.y < next.y)
+        {
+            let x = (current.x - glyph.x_min) as usize + padding / 2;
+            let y = (current.y - glyph.y_min) as usize + padding / 2;
+
+            pixel_map.set(PixelInfo::InvisibleVertex, x, y);
+        }
+
+        if next.y == current.y && current.y > prev.y {
+            let x = (current.x - glyph.x_min) as usize + padding / 2;
+            let y = (current.y - glyph.y_min) as usize + padding / 2;
+
+            pixel_map.set(PixelInfo::VisibleVertexZero, x, y);
+        }
+
+        if prev.y == current.y && current.y > next.y {
+            let x = (current.x - glyph.x_min) as usize + padding / 2;
+            let y = (current.y - glyph.y_min) as usize + padding / 2;
+
+            pixel_map.set(PixelInfo::VisibleVertexOne, x, y);
         }
     }
 }
@@ -305,7 +356,8 @@ fn fill_glyph(
 
             let mut x0 = x;
             let mut crossing_count = 0;
-            let mut last_touched = false;
+            let mut last_count = 0;
+            let mut vertex_touched = false;
 
             loop {
                 x0 += 1;
@@ -315,16 +367,33 @@ fn fill_glyph(
                 }
 
                 match pixel_map.get_unchecked(x0, y) {
-                    PixelInfo::Empty => last_touched = false,
-                    PixelInfo::Zero if last_touched == false => {
+                    PixelInfo::Empty => {
+                        last_count = 0;
+                        vertex_touched = false;
+                    }
+                    PixelInfo::Zero if last_count == 0 && vertex_touched == false => {
                         crossing_count += 1;
-                        last_touched = true;
+                        last_count = 1;
                     }
-                    PixelInfo::One if last_touched == false => {
+                    PixelInfo::One if last_count == 0 && vertex_touched == false => {
                         crossing_count -= 1;
-                        last_touched = true;
+                        last_count = -1;
                     }
-                    _ => {}
+                    PixelInfo::Zero => {}
+                    PixelInfo::One => {}
+                    PixelInfo::InvisibleVertex => {
+                        crossing_count -= last_count;
+                        last_count = 0;
+                        vertex_touched = true;
+                    }
+                    PixelInfo::VisibleVertexZero => {
+                        crossing_count += 1;
+                        vertex_touched = true;
+                    }
+                    PixelInfo::VisibleVertexOne => {
+                        crossing_count -= 1;
+                        vertex_touched = true;
+                    }
                 }
             }
 
