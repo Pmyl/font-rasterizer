@@ -60,14 +60,14 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
 
             bitmap_maker = fill_glyph(width, height, pixel_map, bitmap_maker);
 
-            bitmap_maker = draw_points(
-                glyph,
-                padding,
-                &variations_of_big,
-                height,
-                bitmap_maker,
-                simple_glyf_definition,
-            );
+            // bitmap_maker = draw_points(
+            //     glyph,
+            //     padding,
+            //     &variations_of_big,
+            //     height,
+            //     bitmap_maker,
+            //     simple_glyf_definition,
+            // );
         }
         GlyfDefinition::Compound => {}
     }
@@ -403,10 +403,14 @@ fn fill_glyph(
                         vertex_touched = true;
                     }
                     PixelInfo::VisibleVertexZero => {
+                        crossing_count -= last_count;
+                        last_count = 0;
                         crossing_count += 1;
                         vertex_touched = true;
                     }
                     PixelInfo::VisibleVertexOne => {
+                        crossing_count -= last_count;
+                        last_count = 0;
                         crossing_count -= 1;
                         vertex_touched = true;
                     }

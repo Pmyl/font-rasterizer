@@ -23,7 +23,8 @@ impl PixelMap {
 
     pub fn set(&mut self, info: PixelInfo, x: usize, y: usize) {
         match (info, self.map[x + y * self.width]) {
-            (_, PixelInfo::InvisibleVertex) => {}
+            (PixelInfo::One, PixelInfo::InvisibleVertex)
+            | (PixelInfo::Zero, PixelInfo::InvisibleVertex) => {}
             (PixelInfo::One, PixelInfo::Zero) | (PixelInfo::Zero, PixelInfo::One) => {
                 self.map[x + y * self.width] = PixelInfo::InvisibleVertex;
             }
