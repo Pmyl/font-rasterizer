@@ -198,14 +198,14 @@ fn draw_contour(
             let x = (current.x - glyph.x_min) as usize + padding / 2;
             let y = (current.y - glyph.y_min) as usize + padding / 2;
 
-            pixel_map.set(PixelInfo::VisibleVertexZero, x, y);
+            pixel_map.set(PixelInfo::VisibleVertexOne, x, y);
         }
 
         if prev.y == current.y && current.y > next.y {
             let x = (current.x - glyph.x_min) as usize + padding / 2;
             let y = (current.y - glyph.y_min) as usize + padding / 2;
 
-            pixel_map.set(PixelInfo::VisibleVertexOne, x, y);
+            pixel_map.set(PixelInfo::VisibleVertexZero, x, y);
         }
     }
 }
