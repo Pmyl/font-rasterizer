@@ -19,21 +19,21 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
     let padding = 16;
     let variations_of_big: Vec<(usize, usize)> = vec![
         (0, 0),
-        (1, 0),
-        (2, 0),
-        (3, 0),
-        (0, 1),
-        (1, 1),
-        (2, 1),
-        (3, 1),
-        (0, 2),
-        (1, 2),
-        (2, 2),
-        (3, 2),
-        (0, 3),
-        (1, 3),
-        (2, 3),
-        (3, 3),
+        // (1, 0),
+        // (2, 0),
+        // (3, 0),
+        // (0, 1),
+        // (1, 1),
+        // (2, 1),
+        // (3, 1),
+        // (0, 2),
+        // (1, 2),
+        // (2, 2),
+        // (3, 2),
+        // (0, 3),
+        // (1, 3),
+        // (2, 3),
+        // (3, 3),
     ];
 
     let height = (glyph.y_max - glyph.y_min) as usize + padding;
@@ -338,8 +338,6 @@ fn draw_points(
     bitmap_maker
 }
 
-// TODO: fix with what this says about vertices https://en.wikipedia.org/wiki/Point_in_polygon
-// Most implementations of the ray casting algorithm consecutively check intersections of a ray with all sides of the polygon in turn. In this case the following problem must be addressed. If the ray passes exactly through a vertex of a polygon, then it will intersect 2 segments at their endpoints. While it is OK for the case of the topmost vertex in the example or the vertex between crossing 4 and 5, the case of the rightmost vertex (in the example) requires that we count one intersection for the algorithm to work correctly. A similar problem arises with horizontal segments that happen to fall on the ray. The issue is solved as follows: If the intersection point is a vertex of a tested polygon side, then the intersection counts only if the other vertex of the side lies below the ray. This is effectively equivalent to considering vertices on the ray as lying slightly above the ray.
 fn fill_glyph(
     width: usize,
     height: usize,
@@ -371,11 +369,11 @@ fn fill_glyph(
                         last_count = 0;
                         vertex_touched = false;
                     }
-                    PixelInfo::Zero if last_count == 0 && vertex_touched == false => {
+                    PixelInfo::Zero if last_count != 1 && vertex_touched == false => {
                         crossing_count += 1;
                         last_count = 1;
                     }
-                    PixelInfo::One if last_count == 0 && vertex_touched == false => {
+                    PixelInfo::One if last_count != -1 && vertex_touched == false => {
                         crossing_count -= 1;
                         last_count = -1;
                     }
