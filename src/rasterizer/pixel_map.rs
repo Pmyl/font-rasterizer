@@ -22,7 +22,13 @@ impl PixelMap {
     }
 
     pub fn set(&mut self, info: PixelInfo, x: usize, y: usize) {
-        self.map[x + y * self.width] = info;
+        match (info, self.map[x + y * self.width]) {
+            (_, PixelInfo::InvisibleVertex) => {}
+            (PixelInfo::One, PixelInfo::Zero) | (PixelInfo::Zero, PixelInfo::One) => {
+                self.map[x + y * self.width] = PixelInfo::InvisibleVertex;
+            }
+            _ => self.map[x + y * self.width] = info,
+        }
     }
 
     pub fn get_unchecked(&self, x: usize, y: usize) -> PixelInfo {

@@ -346,11 +346,29 @@ fn fill_glyph(
 ) -> bitmap::BitmapMaker {
     for x in 0..width {
         for y in 0..height {
-            let PixelInfo::Empty = pixel_map.get_unchecked(x, y) else {
-                // Contour
-                bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0x44FF0000);
-                continue;
-            };
+            match pixel_map.get_unchecked(x, y) {
+                PixelInfo::InvisibleVertex => {
+                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFFFF0000);
+                    continue;
+                }
+                PixelInfo::VisibleVertexOne => {
+                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF00FF00);
+                    continue;
+                }
+                PixelInfo::VisibleVertexZero => {
+                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF0000FF);
+                    continue;
+                }
+                PixelInfo::Zero => {
+                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFFFF00FF);
+                    continue;
+                }
+                PixelInfo::One => {
+                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF00FFFF);
+                    continue;
+                }
+                _ => {}
+            }
 
             let mut x0 = x;
             let mut crossing_count = 0;
