@@ -17,25 +17,6 @@ mod pixel_map;
 
 pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
     let padding = 16;
-    let variations_of_big: Vec<(usize, usize)> = vec![
-        (0, 0),
-        // (1, 0),
-        // (2, 0),
-        // (3, 0),
-        // (0, 1),
-        // (1, 1),
-        // (2, 1),
-        // (3, 1),
-        // (0, 2),
-        // (1, 2),
-        // (2, 2),
-        // (3, 2),
-        // (0, 3),
-        // (1, 3),
-        // (2, 3),
-        // (3, 3),
-    ];
-
     let height = (glyph.y_max - glyph.y_min) as usize + padding;
     let width = (glyph.x_max - glyph.x_min) as usize + padding;
     let mut bitmap_maker = bitmap::BitmapMaker::new(width, height);
@@ -63,7 +44,6 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
             // bitmap_maker = draw_points(
             //     glyph,
             //     padding,
-            //     &variations_of_big,
             //     height,
             //     bitmap_maker,
             //     simple_glyf_definition,
@@ -309,14 +289,33 @@ fn draw_curve(
     }
 }
 
+#[expect(unused)]
 fn draw_points(
     glyph: &GlyfData,
     padding: usize,
-    variations_of_big: &Vec<(usize, usize)>,
     height: usize,
     mut bitmap_maker: bitmap::BitmapMaker,
     simple_glyf_definition: &font::glyf::SimpleGlyfDefinition,
 ) -> bitmap::BitmapMaker {
+    let variations_of_big: Vec<(usize, usize)> = vec![
+        (0, 0),
+        // (1, 0),
+        // (2, 0),
+        // (3, 0),
+        // (0, 1),
+        // (1, 1),
+        // (2, 1),
+        // (3, 1),
+        // (0, 2),
+        // (1, 2),
+        // (2, 2),
+        // (3, 2),
+        // (0, 3),
+        // (1, 3),
+        // (2, 3),
+        // (3, 3),
+    ];
+
     for ((x, y), flag) in simple_glyf_definition
         .x_coordinates
         .iter()
@@ -324,7 +323,7 @@ fn draw_points(
         .zip(&simple_glyf_definition.flags)
     {
         let colour = if flag.on_curve { 0x000000 } else { 0x00FF00 };
-        for variations in variations_of_big {
+        for variations in &variations_of_big {
             bitmap_maker = bitmap_maker.with(
                 Point {
                     x: (x - glyph.x_min) as usize + padding / 2 + variations.0,

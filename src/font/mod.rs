@@ -58,3 +58,11 @@ pub struct TableDirectoryEntry {
     pub offset: u32,    // offset from beginning of sfnt
     pub length: u32,    // length of this table in byte (actual length not padded length)
 }
+
+impl TrueTypeFont {
+    pub fn get_glyph_data(&self, c: char) -> Option<&glyf::GlyfData> {
+        self.cmap
+            .get_glyph_index(c)
+            .and_then(|index| self.glyf.glyphs.get(index))
+    }
+}

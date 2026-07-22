@@ -17,11 +17,16 @@ use font_rasterizer::font::{
     glyf::{Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition},
     head::Head,
     loca::Loca,
-    mac_os_roman::from_byte_to_cmap_index,
     maxp::Maxp,
 };
 
 use font_rasterizer::rasterizer::rasterize_glyph_to_bitmap;
+
+macro_rules! r {
+    ($name:ident, $file:expr, $desc:expr) => {
+        $name($file).map_err(|e| format!("Reading {} {}", $desc, e))
+    };
+}
 
 type Result<T> = core::result::Result<T, Box<dyn Error>>;
 
@@ -50,28 +55,11 @@ fn main() -> Result<()> {
 
     // dbg!(&font.cmap);
 
-    let mut printed = false;
-
-    for subtable in &font.cmap.subtables {
-        match &subtable {
-            CmapSubtable::Format0(format0) => {
-                let cmap_index = from_byte_to_cmap_index(character_to_show);
-                let index = format0.glyph_index_array[cmap_index];
-                let glyph = &font.glyf.glyphs[index as usize];
-                // println!("Index {:#?} -> {} -> {}", glyph, cmap_index, index);
-
-                rasterize_glyph_to_bitmap(glyph, &target_file_path);
-                printed = true;
-                break;
-            }
-            CmapSubtable::Format4(format4) => todo!(),
-            CmapSubtable::Unhandled { .. } => {}
-        }
-    }
-
-    if !printed {
+    if let Some(glyph) = font.get_glyph_data(character_to_show) {
+        rasterize_glyph_to_bitmap(glyph, &target_file_path);
+    } else {
         eprintln!(
-            "Format0 not found, only these formats exist: {:?}",
+            "Glyph not found, only these formats exist: {:?}",
             font.cmap.subtables
         );
     }
@@ -396,17 +384,15 @@ fn read_cmap(file: &mut File, offset: u32, _: u32) -> Result<Cmap> {
     file.seek(SeekFrom::Start(offset as u64))
         .map_err(|e| format!("Seeking for cmap {}", e))?;
 
-    let version = read_u16(file).map_err(|e| format!("Reading version {}", e))?;
-    let number_of_subtables =
-        read_u16(file).map_err(|e| format!("Reading number_of_subtables {}", e))?;
+    let version = r!(read_u16, file, "version")?;
+    let number_of_subtables = r!(read_u16, file, "number_of_subtables")?;
 
     let mut encoding_subtables = Vec::with_capacity(number_of_subtables as usize);
     for _ in 0..number_of_subtables {
         let subtable = CmapEncodingSubtable {
-            platform_id: read_u16(file).map_err(|e| format!("Reading platform_id {}", e))?,
-            platform_specific_id: read_u16(file)
-                .map_err(|e| format!("Reading platform_specific_id {}", e))?,
-            offset: read_u32(file).map_err(|e| format!("Reading offset {}", e))?,
+            platform_id: r!(read_u16, file, "platform_id")?,
+            platform_specific_id: r!(read_u16, file, "platform_specific_id")?,
+            offset: r!(read_u32, file, "offset")?,
         };
 
         encoding_subtables.push(subtable);
@@ -421,9 +407,8 @@ fn read_cmap(file: &mut File, offset: u32, _: u32) -> Result<Cmap> {
         let subtable = if format == 0 {
             let format0 = Format0 {
                 format: 0,
-                length_in_bytes: read_u16(file)
-                    .map_err(|e| format!("Reading length_in_bytes {}", e))?,
-                language: read_u16(file).map_err(|e| format!("Reading language {}", e))?,
+                length_in_bytes: r!(read_u16, file, "length_in_bytes")?,
+                language: r!(read_u16, file, "language")?,
                 glyph_index_array: read_bytes::<256>(file)
                     .map_err(|e| format!("Reading glyph_index_array {}", e))?,
             };
@@ -431,34 +416,39 @@ fn read_cmap(file: &mut File, offset: u32, _: u32) -> Result<Cmap> {
             assert_eq!(format0.length_in_bytes, 262);
             CmapSubtable::Format0(format0)
         } else if format == 4 {
-            let length_in_bytes =
-                read_u16(file).map_err(|e| format!("Reading length_in_bytes {}", e))?;
-            let language = read_u16(file).map_err(|e| format!("Reading language {}", e))?;
-            let seg_count_x2 = read_u16(file).map_err(|e| format!("Reading seg count x2 {}", e))?;
-            let _ = read_u16(file).map_err(|e| format!("Reading search range {}", e))?;
-            let _ = read_u16(file).map_err(|e| format!("Reading entry selector {}", e))?;
-            let _ = read_u16(file).map_err(|e| format!("Reading range shift {}", e))?;
-            let end_codes = read_vec_u16(file, seg_count_x2 as usize / 2)
+            let length_in_bytes = r!(read_u16, file, "length_in_bytes")?;
+            let language = r!(read_u16, file, "language")?;
+            let seg_count = r!(read_u16, file, "seg count x2")? / 2;
+            r!(read_u16, file, "SKIP search range")?;
+            r!(read_u16, file, "SKIP entry selector")?;
+            r!(read_u16, file, "SKIP range shift")?;
+            let end_codes = read_vec_u16(file, seg_count as usize)
                 .map_err(|e| format!("Reading end codes {}", e))?;
 
-            let _ = read_u16(file).map_err(|e| format!("Reading reserved pad {}", e))?;
+            r!(read_u16, file, "SKIP reserved pad")?;
 
-            let start_codes = read_vec_u16(file, seg_count_x2 as usize / 2)
+            let start_codes = read_vec_u16(file, seg_count as usize)
                 .map_err(|e| format!("Reading start codes {}", e))?;
 
-            let id_deltas = read_vec_u16(file, seg_count_x2 as usize / 2)
+            let id_deltas = read_vec_u16(file, seg_count as usize)
                 .map_err(|e| format!("Reading id deltas {}", e))?;
 
-            let id_range_offsets = read_vec_u16(file, seg_count_x2 as usize / 2)
+            let id_range_offsets = read_vec_u16(file, seg_count as usize)
                 .map_err(|e| format!("Reading id range offset {}", e))?;
 
-            let glyph_index_array = todo!();
+            let glyphs_length = start_codes
+                .iter()
+                .zip(&end_codes)
+                .map(|(s, e)| e - s + 1)
+                .sum::<u16>() as usize;
+            let glyph_index_array = read_vec_u16(file, glyphs_length)
+                .map_err(|e| format!("Reading glyph index array {}", e))?;
 
             CmapSubtable::Format4(Format4 {
                 format,
                 length_in_bytes,
                 language,
-                seg_count_x2,
+                seg_count,
                 end_codes,
                 start_codes,
                 id_deltas,
