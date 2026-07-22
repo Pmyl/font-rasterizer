@@ -13,7 +13,7 @@ use std::{
 
 use font_rasterizer::font::{
     OffsetSubtable, TableDirectory, TableDirectoryEntry, TrueTypeFont,
-    cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0},
+    cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0, Format4},
     glyf::{Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition},
     head::Head,
     loca::Loca,
@@ -64,6 +64,7 @@ fn main() -> Result<()> {
                 printed = true;
                 break;
             }
+            CmapSubtable::Format4(format4) => todo!(),
             CmapSubtable::Unhandled { .. } => {}
         }
     }
@@ -429,6 +430,41 @@ fn read_cmap(file: &mut File, offset: u32, _: u32) -> Result<Cmap> {
 
             assert_eq!(format0.length_in_bytes, 262);
             CmapSubtable::Format0(format0)
+        } else if format == 4 {
+            let length_in_bytes =
+                read_u16(file).map_err(|e| format!("Reading length_in_bytes {}", e))?;
+            let language = read_u16(file).map_err(|e| format!("Reading language {}", e))?;
+            let seg_count_x2 = read_u16(file).map_err(|e| format!("Reading seg count x2 {}", e))?;
+            let _ = read_u16(file).map_err(|e| format!("Reading search range {}", e))?;
+            let _ = read_u16(file).map_err(|e| format!("Reading entry selector {}", e))?;
+            let _ = read_u16(file).map_err(|e| format!("Reading range shift {}", e))?;
+            let end_codes = read_vec_u16(file, seg_count_x2 as usize / 2)
+                .map_err(|e| format!("Reading end codes {}", e))?;
+
+            let _ = read_u16(file).map_err(|e| format!("Reading reserved pad {}", e))?;
+
+            let start_codes = read_vec_u16(file, seg_count_x2 as usize / 2)
+                .map_err(|e| format!("Reading start codes {}", e))?;
+
+            let id_deltas = read_vec_u16(file, seg_count_x2 as usize / 2)
+                .map_err(|e| format!("Reading id deltas {}", e))?;
+
+            let id_range_offsets = read_vec_u16(file, seg_count_x2 as usize / 2)
+                .map_err(|e| format!("Reading id range offset {}", e))?;
+
+            let glyph_index_array = todo!();
+
+            CmapSubtable::Format4(Format4 {
+                format,
+                length_in_bytes,
+                language,
+                seg_count_x2,
+                end_codes,
+                start_codes,
+                id_deltas,
+                id_range_offsets,
+                glyph_index_array,
+            })
         } else {
             CmapSubtable::Unhandled { format }
         };
@@ -483,4 +519,15 @@ fn read_bytes<const N: usize>(file: &mut File) -> Result<[u8; N]> {
     let mut bytes = [0u8; N];
     file.read_exact(&mut bytes)?;
     Ok(bytes)
+}
+
+fn read_vec_u16(file: &mut File, length: usize) -> Result<Vec<u16>> {
+    let mut vec: Vec<u16> = Vec::with_capacity(length);
+
+    for _ in 0..length {
+        let bytes = read_u16(file)?;
+        vec.push(bytes);
+    }
+
+    Ok(vec)
 }

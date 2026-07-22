@@ -16,6 +16,7 @@ pub struct CmapEncodingSubtable {
 #[derive(Debug)]
 pub enum CmapSubtable {
     Format0(Format0),
+    Format4(Format4),
     Unhandled { format: u16 },
 }
 
@@ -25,4 +26,17 @@ pub struct Format0 {
     pub length_in_bytes: u16,
     pub language: u16,                // language code
     pub glyph_index_array: [u8; 256], // An array that maps character codes to glyph index values
+}
+
+#[derive(Debug)]
+pub struct Format4 {
+    pub format: u16, // set to 4
+    pub length_in_bytes: u16,
+    pub language: u16, // language code
+    pub seg_count_x2: u16,
+    pub end_codes: Vec<u16>,
+    pub start_codes: Vec<u16>,
+    pub id_deltas: Vec<u16>,
+    pub id_range_offsets: Vec<u16>,
+    pub glyph_index_array: Vec<u16>, // An array that maps character codes to glyph index values
 }
