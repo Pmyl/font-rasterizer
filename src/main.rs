@@ -14,7 +14,9 @@ use std::{
 use font_rasterizer::font::{
     OffsetSubtable, TableDirectory, TableDirectoryEntry, TrueTypeFont,
     cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0, Format4},
-    glyf::{Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition},
+    glyf::{
+        CompoundGlyfDefinition, Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition,
+    },
     head::Head,
     loca::Loca,
     maxp::Maxp,
@@ -153,7 +155,7 @@ fn read_glyf(file: &mut File, entry: &TableDirectoryEntry, loca: &Loca) -> Resul
         let y_max = read_i16(file).map_err(|e| format!("Reading y_max {}", e))?;
 
         let definition: GlyfDefinition = if number_of_contours < 0 {
-            GlyfDefinition::Compound
+            GlyfDefinition::Compound(CompoundGlyfDefinition { components: vec![] })
         } else if number_of_contours == 0 {
             let simple = SimpleGlyfDefinition {
                 end_pts_of_contours: vec![],

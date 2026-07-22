@@ -49,7 +49,7 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
             //     simple_glyf_definition,
             // );
         }
-        GlyfDefinition::Compound => {}
+        GlyfDefinition::Compound(_) => {}
     }
 
     let bitmap = bitmap_maker.make().unwrap();
