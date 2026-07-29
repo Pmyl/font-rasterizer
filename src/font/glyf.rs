@@ -52,14 +52,14 @@ pub struct CompoundGlyfDefinition {
 
 #[derive(Debug)]
 pub struct CompoundGlyf {
-    flags: CompoundGlyFlag,
-    glyph_index: u16,
-    argument_1: u16,
-    argument_2: u16,
+    pub flags: CompoundGlyfFlag,
+    pub glyph_index: u16,
+    pub argument_1: u16,
+    pub argument_2: u16,
 }
 
 #[derive(Debug)]
-pub struct CompoundGlyFlag {
+pub struct CompoundGlyfFlag {
     pub arg1_and_2_are_words: bool,
     pub args_are_xy_values: bool,
     pub round_xy_to_grid: bool,

@@ -8,8 +8,10 @@ pub enum PixelInfo {
     VisibleVertexOne,
 }
 
+// (0,0) is bottom left
 pub struct PixelMap {
-    width: usize,
+    pub width: usize,
+    pub height: usize,
     map: Vec<PixelInfo>,
 }
 
@@ -17,10 +19,12 @@ impl PixelMap {
     pub fn new(width: usize, height: usize) -> Self {
         Self {
             width,
+            height,
             map: vec![PixelInfo::Empty; width * height],
         }
     }
 
+    // (0,0) is bottom left
     pub fn set(&mut self, info: PixelInfo, x: usize, y: usize) {
         match (info, self.map[x + y * self.width]) {
             (PixelInfo::One, PixelInfo::InvisibleVertex)

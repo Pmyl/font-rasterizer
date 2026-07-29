@@ -65,4 +65,8 @@ impl TrueTypeFont {
             .get_glyph_index(c)
             .and_then(|index| self.glyf.glyphs.get(index))
     }
+
+    pub fn get_glyph_data_by_index(&self, index: usize) -> Option<&glyf::GlyfData> {
+        self.glyf.glyphs.get(index)
+    }
 }

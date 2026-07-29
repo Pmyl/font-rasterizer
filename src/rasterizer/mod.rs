@@ -1,4 +1,4 @@
-use bitmap::Point;
+use bitmap::{BitmapMaker, Point};
 use std::{
     fs::create_dir_all,
     ops::{Add, Mul, Sub},
@@ -7,49 +7,75 @@ use std::{
 
 use crate::{
     font::{
-        self,
-        glyf::{GlyfData, GlyfDefinition, GlyfFlag},
+        self, TrueTypeFont,
+        glyf::{GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition},
     },
     rasterizer::pixel_map::{PixelInfo, PixelMap},
 };
 
 mod pixel_map;
 
-pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
+pub fn rasterize_glyph_to_bitmap(font: &TrueTypeFont, glyph: &GlyfData, file_path: &Path) {
     let padding = 16;
     let height = (glyph.y_max - glyph.y_min) as usize + padding;
     let width = (glyph.x_max - glyph.x_min) as usize + padding;
     let mut bitmap_maker = bitmap::BitmapMaker::new(width, height);
-    let mut pixel_map = PixelMap::new(width, height);
 
     match &glyph.definition {
         GlyfDefinition::Simple(simple_glyf_definition) => {
-            let mut start = 0;
-
-            for contour in &simple_glyf_definition.end_pts_of_contours {
-                let end = *contour as usize;
-                draw_contour(
-                    glyph,
-                    padding,
-                    &mut pixel_map,
-                    &simple_glyf_definition.x_coordinates[start..=end],
-                    &simple_glyf_definition.y_coordinates[start..=end],
-                    &simple_glyf_definition.flags[start..=end],
-                );
-                start = end + 1;
-            }
-
-            bitmap_maker = fill_glyph(width, height, pixel_map, bitmap_maker);
-
-            // bitmap_maker = draw_points(
-            //     glyph,
-            //     padding,
-            //     height,
-            //     bitmap_maker,
-            //     simple_glyf_definition,
-            // );
+            bitmap_maker = draw_simple_glyf(
+                width,
+                height,
+                &glyph,
+                simple_glyf_definition,
+                padding,
+                bitmap_maker,
+            );
         }
-        GlyfDefinition::Compound(_) => {}
+        GlyfDefinition::Compound(compound) => {
+            for component in &compound.components {
+                let Some(component_glyph) =
+                    font.get_glyph_data_by_index(component.glyph_index as usize)
+                else {
+                    eprintln!(
+                        "Component of compound points to non existent glyph at index {}",
+                        component.glyph_index
+                    );
+                    return;
+                };
+
+                let GlyfDefinition::Simple(simple_glyf_definition) = &component_glyph.definition
+                else {
+                    eprintln!(
+                        "Component of compound points to another compound glyph at index {}",
+                        component.glyph_index
+                    );
+                    return;
+                };
+
+                let height = (component_glyph.y_max - component_glyph.y_min) as usize + padding;
+                let width = (component_glyph.x_max - component_glyph.x_min) as usize + padding;
+                let dx = component.argument_1 as i16;
+                let dy = component.argument_2 as i16;
+
+                bitmap_maker.delta(dx, dy);
+                bitmap_maker.add_delta(
+                    component_glyph.x_min - glyph.x_min,
+                    component_glyph.y_min - glyph.y_min,
+                );
+
+                bitmap_maker = draw_simple_glyf(
+                    width,
+                    height,
+                    &component_glyph,
+                    simple_glyf_definition,
+                    padding,
+                    bitmap_maker,
+                );
+
+                bitmap_maker.reset_delta();
+            }
+        }
     }
 
     let bitmap = bitmap_maker.make().unwrap();
@@ -64,6 +90,43 @@ pub fn rasterize_glyph_to_bitmap(glyph: &GlyfData, file_path: &Path) {
         .expect("Should be able to open a file");
 
     bitmap.write(&mut image_file).unwrap();
+}
+
+fn draw_simple_glyf(
+    width: usize,
+    height: usize,
+    glyph: &GlyfData,
+    simple_glyf_definition: &SimpleGlyfDefinition,
+    padding: usize,
+    mut bitmap_maker: BitmapMaker,
+) -> BitmapMaker {
+    let mut pixel_map = PixelMap::new(width, height);
+    let mut start = 0;
+
+    for contour in &simple_glyf_definition.end_pts_of_contours {
+        let end = *contour as usize;
+        draw_contour(
+            glyph,
+            padding,
+            &mut pixel_map,
+            &simple_glyf_definition.x_coordinates[start..=end],
+            &simple_glyf_definition.y_coordinates[start..=end],
+            &simple_glyf_definition.flags[start..=end],
+        );
+        start = end + 1;
+    }
+
+    bitmap_maker = fill_glyph(pixel_map, bitmap_maker);
+
+    // bitmap_maker = draw_points(
+    //     glyph,
+    //     padding,
+    //     height,
+    //     bitmap_maker,
+    //     simple_glyf_definition,
+    // );
+
+    bitmap_maker
 }
 
 #[derive(Clone)]
@@ -324,10 +387,10 @@ fn draw_points(
     {
         let colour = if flag.on_curve { 0x000000 } else { 0x00FF00 };
         for variations in &variations_of_big {
-            bitmap_maker = bitmap_maker.with(
+            bitmap_maker = bitmap_maker.with_inverted_v(
                 Point {
                     x: (x - glyph.x_min) as usize + padding / 2 + variations.0,
-                    y: height - ((y - glyph.y_min) as usize + padding / 2 + variations.1),
+                    y: (y - glyph.y_min) as usize + padding / 2 + variations.1,
                 },
                 colour,
             );
@@ -337,33 +400,31 @@ fn draw_points(
     bitmap_maker
 }
 
-fn fill_glyph(
-    width: usize,
-    height: usize,
-    pixel_map: PixelMap,
-    mut bitmap_maker: bitmap::BitmapMaker,
-) -> bitmap::BitmapMaker {
+fn fill_glyph(pixel_map: PixelMap, mut bitmap_maker: bitmap::BitmapMaker) -> bitmap::BitmapMaker {
+    let width = pixel_map.width;
+    let height = pixel_map.height;
+
     for x in 0..width {
         for y in 0..height {
             match pixel_map.get_unchecked(x, y) {
                 PixelInfo::InvisibleVertex => {
-                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFFFF0000);
+                    bitmap_maker = bitmap_maker.with_inverted_v(Point::new(x, y), 0xFFFF0000);
                     continue;
                 }
                 PixelInfo::VisibleVertexOne => {
-                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF00FF00);
+                    bitmap_maker = bitmap_maker.with_inverted_v(Point::new(x, y), 0xFF00FF00);
                     continue;
                 }
                 PixelInfo::VisibleVertexZero => {
-                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF0000FF);
+                    bitmap_maker = bitmap_maker.with_inverted_v(Point::new(x, y), 0xFF0000FF);
                     continue;
                 }
                 PixelInfo::Zero => {
-                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFFFF00FF);
+                    bitmap_maker = bitmap_maker.with_inverted_v(Point::new(x, y), 0xFFFF00FF);
                     continue;
                 }
                 PixelInfo::One => {
-                    bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF00FFFF);
+                    bitmap_maker = bitmap_maker.with_inverted_v(Point::new(x, y), 0xFF00FFFF);
                     continue;
                 }
                 _ => {}
@@ -418,7 +479,7 @@ fn fill_glyph(
 
             if crossing_count != 0 {
                 // Inside
-                bitmap_maker = bitmap_maker.with(Point::new(x, height - y), 0xFF440000);
+                bitmap_maker = bitmap_maker.with_inverted_v(Point::new(x, y), 0xFF440000);
             }
         }
     }

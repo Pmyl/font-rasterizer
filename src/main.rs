@@ -15,7 +15,8 @@ use font_rasterizer::font::{
     OffsetSubtable, TableDirectory, TableDirectoryEntry, TrueTypeFont,
     cmap::{Cmap, CmapEncodingSubtable, CmapSubtable, Format0, Format4},
     glyf::{
-        CompoundGlyfDefinition, Glyf, GlyfData, GlyfDefinition, GlyfFlag, SimpleGlyfDefinition,
+        CompoundGlyf, CompoundGlyfDefinition, CompoundGlyfFlag, Glyf, GlyfData, GlyfDefinition,
+        GlyfFlag, SimpleGlyfDefinition,
     },
     head::Head,
     loca::Loca,
@@ -58,7 +59,7 @@ fn main() -> Result<()> {
     // dbg!(&font.cmap);
 
     if let Some(glyph) = font.get_glyph_data(character_to_show) {
-        rasterize_glyph_to_bitmap(glyph, &target_file_path);
+        rasterize_glyph_to_bitmap(&font, glyph, &target_file_path);
     } else {
         eprintln!(
             "Glyph not found, only these formats exist: {:?}",
@@ -155,7 +156,66 @@ fn read_glyf(file: &mut File, entry: &TableDirectoryEntry, loca: &Loca) -> Resul
         let y_max = read_i16(file).map_err(|e| format!("Reading y_max {}", e))?;
 
         let definition: GlyfDefinition = if number_of_contours < 0 {
-            GlyfDefinition::Compound(CompoundGlyfDefinition { components: vec![] })
+            let mut components = vec![];
+
+            loop {
+                let flags = {
+                    let flags = r!(read_u16, file, "flags")?;
+
+                    CompoundGlyfFlag {
+                        arg1_and_2_are_words: flags & 0b0000000000000001 != 0,
+                        args_are_xy_values: flags & 0b0000000000000010 != 0,
+                        round_xy_to_grid: flags & 0b0000000000000100 != 0,
+                        we_have_a_scale: flags & 0b0000000000001000 != 0,
+                        // obsolete bit
+                        more_components: flags & 0b0000000000100000 != 0,
+                        we_have_an_x_and_y_scale: flags & 0b0000000001000000 != 0,
+                        we_have_a_two_by_two: flags & 0b0000000010000000 != 0,
+                        we_have_instructions: flags & 0b0000000100000000 != 0,
+                        use_my_metrics: flags & 0b0000001000000000 != 0,
+                        overlap_compound: flags & 0b0000010000000000 != 0,
+                    }
+                };
+                let glyph_index = r!(read_u16, file, "glyph_index")?;
+                let argument_1: u16 = if flags.arg1_and_2_are_words {
+                    r!(read_u16, file, "argument1")?
+                } else {
+                    r!(read_u8, file, "argument1")? as u16
+                };
+                let argument_2: u16 = if flags.arg1_and_2_are_words {
+                    r!(read_u16, file, "argument2")?
+                } else {
+                    r!(read_u8, file, "argument2")? as u16
+                };
+
+                // transformation options discarded, we don't scale
+                if flags.we_have_a_scale {
+                    r!(read_u16, file, "scale")?;
+                } else if flags.we_have_an_x_and_y_scale {
+                    r!(read_u16, file, "x scale")?;
+                    r!(read_u16, file, "y scale")?;
+                } else if flags.we_have_a_two_by_two {
+                    r!(read_u16, file, "x scale")?;
+                    r!(read_u16, file, "scale01")?;
+                    r!(read_u16, file, "scale10")?;
+                    r!(read_u16, file, "y scale")?;
+                }
+
+                let more_components = flags.more_components;
+
+                components.push(CompoundGlyf {
+                    flags,
+                    glyph_index,
+                    argument_1,
+                    argument_2,
+                });
+
+                if !more_components {
+                    break;
+                }
+            }
+
+            GlyfDefinition::Compound(CompoundGlyfDefinition { components })
         } else if number_of_contours == 0 {
             let simple = SimpleGlyfDefinition {
                 end_pts_of_contours: vec![],
